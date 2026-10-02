@@ -4,6 +4,8 @@ const {
   MGMT_OP_WRITE,
   MGMT_GROUP_ID_OS,
   MGMT_GROUP_ID_IMAGE,
+  MGMT_GROUP_ID_ENUM,
+  ENUM_MGMT_ID_DETAILS,
   OS_MGMT_ID_ECHO,
   OS_MGMT_ID_RESET,
   IMG_MGMT_ID_STATE,
@@ -409,6 +411,85 @@ describe('MCUManager', () => {
     });
   });
 
+  describe('Request/response management', () => {
+    test('resolves an enumeration request with its matching SMP response', async () => {
+      global.CBOR.encode.mockReturnValue(new Uint8Array([0xa0]));
+      global.CBOR.decode.mockReturnValue({ count: 4 });
+      manager._transport = {
+        smpVersion: SMP.SMP_VERSION_1,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const response = manager.cmdEnumCount();
+      const request = SMP.decodeMessage(manager._transport.sendMessage.mock.calls[0][0]);
+      manager._processMessage(SMP.encodeMessage({
+        version: SMP.SMP_VERSION_1,
+        op: SMP.MGMT_OP_READ_RSP,
+        group: SMP.MGMT_GROUP_ID_ENUM,
+        sequence: request.sequence,
+        id: SMP.ENUM_MGMT_ID_COUNT
+      }, new Uint8Array([0xa0])));
+
+      await expect(response).resolves.toEqual({ count: 4 });
+    });
+
+    test('supports concurrent Enumeration requests with unique sequence numbers', async () => {
+      global.CBOR.encode.mockReturnValue(new Uint8Array([0xa0]));
+      global.CBOR.decode.mockReturnValue({ groups: [0, 1] });
+      manager._transport = {
+        smpVersion: SMP.SMP_VERSION_1,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const countResponse = manager.cmdEnumCount();
+      const listResponse = manager.cmdEnumList();
+      const requests = manager._transport.sendMessage.mock.calls.map(([packet]) => SMP.decodeMessage(packet));
+      expect(requests.map(request => request.sequence)).toEqual([0, 1]);
+
+      for (const request of requests.reverse()) {
+        manager._processMessage(SMP.encodeMessage({
+          version: SMP.SMP_VERSION_1,
+          op: SMP.MGMT_OP_READ_RSP,
+          group: request.group,
+          sequence: request.sequence,
+          id: request.id
+        }, new Uint8Array([0xa0])));
+      }
+
+      await expect(countResponse).resolves.toEqual({ groups: [0, 1] });
+      await expect(listResponse).resolves.toEqual({ groups: [0, 1] });
+    });
+
+    test('rejects pending requests when disconnected', async () => {
+      manager._transport = {
+        smpVersion: SMP.SMP_VERSION_1,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+      const response = manager.cmdEnumList();
+      const rejection = expect(response).rejects.toThrow('Disconnected before the response was received');
+
+      await manager._disconnected();
+      await rejection;
+
+      expect(manager._pendingRequests.size).toBe(0);
+    });
+  });
+
+  describe('Enumeration command methods', () => {
+    test('cmdEnumDetails filters metadata to selected groups', () => {
+      manager._requestMessage = jest.fn();
+
+      manager.cmdEnumDetails([0, 9]);
+
+      expect(manager._requestMessage).toHaveBeenCalledWith(
+        MGMT_OP_READ,
+        MGMT_GROUP_ID_ENUM,
+        ENUM_MGMT_ID_DETAILS,
+        { groups: [0, 9] }
+      );
+    });
+  });
+
   describe('Command Methods', () => {
     beforeEach(() => {
       // Mock _sendMessage for command tests
@@ -610,6 +691,7 @@ describe('MCUManager', () => {
     test('should export group IDs', () => {
       expect(MGMT_GROUP_ID_OS).toBe(0);
       expect(MGMT_GROUP_ID_IMAGE).toBe(1);
+      expect(MGMT_GROUP_ID_ENUM).toBe(10);
     });
 
     test('should export command IDs', () => {

@@ -11,6 +11,7 @@ This document provides comprehensive documentation for the MCUManager JavaScript
   - [Constructor](#constructor)
   - [Connection Methods](#connection-methods)
   - [Event Handlers](#event-handlers)
+  - [Management Group Discovery](#management-group-discovery)
   - [Image Management Commands](#image-management-commands)
   - [OS Management Commands](#os-management-commands)
   - [Utility Methods](#utility-methods)
@@ -118,6 +119,7 @@ Creates a new MCUManager instance.
 **Parameters:**
 - `di` (Object, optional): Dependency injection object
   - `logger` (Object, optional): Custom logger with `info` and `error` methods. Defaults to `console.log` and `console.error`.
+  - `responseTimeout` (Number, optional): Timeout in milliseconds for Promise-based management commands. Defaults to 30000.
 
 **Example:**
 ```javascript
@@ -301,6 +303,29 @@ mcumgr.onImageUploadFinished(() => {
   console.log('Upload complete!');
   statusLabel.textContent = 'Upload finished';
 });
+```
+
+### Management Group Discovery
+
+The Enumeration Management Group discovers which MCUmgr command groups the connected device
+supports. Its commands resolve to the decoded response data and are available through the
+following methods:
+
+- `cmdEnumCount()` returns `{ count }`.
+- `cmdEnumList()` returns `{ groups: number[] }`.
+- `cmdEnumSingle(index?)` returns `{ group, end? }` for one supported group ID.
+- `cmdEnumDetails(groups?)` returns `{ groups: [{ group, name?, handlers?, ... }] }`. Omit
+  `groups` to request details for every supported group, or pass an array of IDs to filter.
+
+Details are optional on the device. The `name` and `handlers` fields depend on the target's Zephyr
+configuration; applications may add other fields through Zephyr's Enumeration callback. A device
+that does not support Enumeration rejects these requests.
+
+```javascript
+const { count } = await mcumgr.cmdEnumCount();
+const { groups } = await mcumgr.cmdEnumList();
+const details = await mcumgr.cmdEnumDetails(groups);
+console.log(`${count} groups`, details.groups);
 ```
 
 ### Image Management Commands

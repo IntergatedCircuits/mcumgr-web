@@ -14,6 +14,10 @@ const connectBluetoothButton = document.getElementById('button-connect-bluetooth
 const connectSerialButton = document.getElementById('button-connect-serial');
 const connectionErrorTipsList = document.getElementById('connection-error-tips-list');
 const echoButton = document.getElementById('button-echo');
+const managementGroupsButton = document.getElementById('button-management-groups');
+const managementGroupsStatus = document.getElementById('management-groups-status');
+const managementGroupsTableWrap = document.getElementById('management-groups-table-wrap');
+const managementGroupsTableBody = document.getElementById('management-groups-table-body');
 const disconnectButton = document.getElementById('button-disconnect');
 const resetButton = document.getElementById('button-reset');
 const imageStateButton = document.getElementById('button-image-state');
@@ -87,6 +91,99 @@ function refreshImageState() {
     });
 }
 
+const managementGroupNames = new Map([
+    [0, 'Operating system'],
+    [1, 'Image management'],
+    [2, 'Statistics'],
+    [3, 'Configuration'],
+    [4, 'Logging'],
+    [5, 'Crash dump'],
+    [6, 'Split image'],
+    [7, 'Runtime'],
+    [8, 'File system'],
+    [9, 'Shell'],
+    [10, 'Enumeration']
+]);
+
+function getManagementError(data) {
+    const errorCode = data && data.err && typeof data.err.rc === 'number'
+        ? data.err.rc
+        : data && data.rc;
+    return errorCode ? `MCUmgr returned error ${errorCode}` : null;
+}
+
+function renderManagementGroups(groups) {
+    managementGroupsTableBody.replaceChildren();
+    for (const group of groups) {
+        const row = document.createElement('tr');
+        const groupId = Number(group.group);
+        const details = Object.entries(group).filter(([key]) => !['group', 'name', 'handlers'].includes(key));
+        const values = [
+            Number.isInteger(groupId) ? String(groupId) : '—',
+            group.name || managementGroupNames.get(groupId) || 'Unknown',
+            group.handlers === undefined ? '—' : String(group.handlers),
+            details.length
+                ? details.map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join('\n')
+                : '—'
+        ];
+        values.forEach((value, index) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            if (index === 3) cell.style.whiteSpace = 'pre-wrap';
+            row.append(cell);
+        });
+        managementGroupsTableBody.append(row);
+    }
+    managementGroupsTableWrap.style.display = groups.length ? '' : 'none';
+}
+
+async function refreshManagementGroups() {
+    managementGroupsButton.disabled = true;
+    managementGroupsStatus.textContent = 'Querying device capabilities...';
+    managementGroupsStatus.classList.remove('text-danger');
+    renderManagementGroups([]);
+    try {
+        const [countResult, listResult] = await Promise.allSettled([
+            mcumgr.cmdEnumCount(),
+            mcumgr.cmdEnumList()
+        ]);
+        if (listResult.status === 'rejected') throw listResult.reason;
+        const listError = getManagementError(listResult.value);
+        if (listError) throw new Error(listError);
+        if (!Array.isArray(listResult.value.groups)) throw new Error('Device returned no management group list');
+
+        const groupIds = listResult.value.groups;
+        let groups = groupIds.map(group => ({ group }));
+        let detailsUnavailable = false;
+        if (groupIds.length) {
+            try {
+                const details = await mcumgr.cmdEnumDetails(groupIds);
+                const detailsError = getManagementError(details);
+                if (detailsError) throw new Error(detailsError);
+                if (Array.isArray(details.groups)) groups = details.groups;
+                else detailsUnavailable = true;
+            } catch (_) {
+                detailsUnavailable = true;
+            }
+        }
+
+        renderManagementGroups(groups);
+        const count = countResult.status === 'fulfilled' && !getManagementError(countResult.value) &&
+            Number.isInteger(countResult.value.count)
+            ? countResult.value.count
+            : groupIds.length;
+        managementGroupsStatus.textContent = `${count} supported management group${count === 1 ? '' : 's'} found` +
+            (detailsUnavailable ? '; detailed metadata is not available' : '');
+    } catch (error) {
+        managementGroupsStatus.textContent = `Could not discover management groups: ${error.message || error}`;
+        managementGroupsStatus.classList.add('text-danger');
+    } finally {
+        managementGroupsButton.disabled = false;
+    }
+}
+
+managementGroupsButton.addEventListener('click', refreshManagementGroups);
+
 deviceNameInput.value = localStorage.getItem('deviceName') || '';
 deviceNameInput.addEventListener('change', () => {
     localStorage.setItem('deviceName', deviceNameInput.value);
@@ -127,6 +224,7 @@ mcumgr.onConnect(() => {
     fileCancel.style.display = 'none';
 
     mcumgr.cmdImageState();
+    refreshManagementGroups();
 });
 mcumgr.onDisconnect((error) => {
     deviceName.innerText = 'Connect your device';

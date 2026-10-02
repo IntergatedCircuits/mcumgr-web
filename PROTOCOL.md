@@ -77,11 +77,11 @@ MGMT_OP_WRITE_RSP  = 3   // Response to write request
 
 ### Sequence Numbers
 
-Sequence numbers (0-255) help match responses to requests:
-- Incremented by sender for each new request
-- Wraps to 0 after 255
-- Receiver echoes the sequence number in the response
-- Not used for matching in this implementation (single request at a time)
+Sequence numbers (0-255) match responses to requests:
+- Incremented by the sender for each new request and wraps to 0 after 255
+- Echoed by the receiver in the response
+- Matched together with group, command ID, and response operation for Promise-based commands
+- Requests can be in flight concurrently; a sequence number is not reused while its request is pending
 
 ## Management Groups
 
@@ -98,11 +98,27 @@ MGMT_GROUP_ID_SPLIT    = 6   // Split image management
 MGMT_GROUP_ID_RUN      = 7   // Runtime information
 MGMT_GROUP_ID_FS       = 8   // File system operations
 MGMT_GROUP_ID_SHELL    = 9   // Shell command execution
+MGMT_GROUP_ID_ENUM      = 10  // Supported management group discovery
 ```
 
 **Implementation Status:**
-- **Fully implemented:** OS (group 0), Image (group 1)
+- **Implemented:** OS (group 0), Image (group 1), Enumeration (group 10)
 - **Not implemented:** Other groups (can be added as needed)
+
+### Enumeration Management Group
+
+Group ID: `10` (`MGMT_GROUP_ID_ENUM`). Requests use `MGMT_OP_READ` and return decoded CBOR data.
+
+| Command | ID | Request data | Successful response |
+|---------|----|--------------|---------------------|
+| Count | 0 | `{}` | `{ count }` |
+| List | 1 | `{}` | `{ groups: number[] }` |
+| Single | 2 | `{ index? }` | `{ group, end? }` |
+| Details | 3 | `{ groups?: number[] }` | `{ groups: [{ group, name?, handlers?, ... }] }` |
+
+The `details` command and the `name`/`handlers` fields are optional Zephyr features. Applications
+can append additional detail fields through Zephyr's Enumeration callback. The browser displays
+these extra fields as returned by the device. SMP errors use the usual v1 `rc` or v2 `err` map.
 
 ## Image Management Group
 

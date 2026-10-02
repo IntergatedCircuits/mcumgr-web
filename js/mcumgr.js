@@ -28,6 +28,11 @@ const {
     MGMT_GROUP_ID_RUN,
     MGMT_GROUP_ID_FS,
     MGMT_GROUP_ID_SHELL,
+    MGMT_GROUP_ID_ENUM,
+    ENUM_MGMT_ID_COUNT,
+    ENUM_MGMT_ID_LIST,
+    ENUM_MGMT_ID_SINGLE,
+    ENUM_MGMT_ID_DETAILS,
     OS_MGMT_ID_ECHO,
     OS_MGMT_ID_CONS_ECHO_CTRL,
     OS_MGMT_ID_TASKSTAT,
@@ -93,6 +98,8 @@ class MCUManager {
         this._totalTimeouts = 0;
         this._logger = di.logger || { info: console.log, error: console.error };
         this._seq = 0;
+        this._pendingRequests = new Map();
+        this._responseTimeout = di.responseTimeout || 30000;
         this._userRequestedDisconnect = false;
         this._reconnectDelay = di.reconnectDelay || 1000;
     }
@@ -174,6 +181,11 @@ class MCUManager {
     }
     async _disconnected(error = null) {
         this._logger.info('Disconnected.');
+        for (const request of this._pendingRequests.values()) {
+            clearTimeout(request.timeoutId);
+            request.reject(error || new Error('Disconnected before the response was received'));
+        }
+        this._pendingRequests.clear();
         if (this._disconnectCallback) this._disconnectCallback(error);
         this._transport = null;
         this._uploadIsInProgress = false;
@@ -187,16 +199,66 @@ class MCUManager {
     }
     async _sendMessage(op, group, id, data) {
         if (!this._transport) throw new Error('No MCUmgr transport is connected');
+        const sequence = this._seq;
+        this._seq = (sequence + 1) % 256;
         const payload = typeof data === 'undefined' ? new Uint8Array() : new Uint8Array(this._cbor.encode(data));
         const message = SMP.encodeMessage({
             op,
             group,
-            sequence: this._seq,
+            sequence,
             id,
             version: this.smpVersion
         }, payload);
         await this._transport.sendMessage(message);
-        this._seq = (this._seq + 1) % 256;
+    }
+    _requestMessage(op, group, id, data) {
+        if (!this._transport) return Promise.reject(new Error('No MCUmgr transport is connected'));
+        const sequence = this._seq;
+        if (this._pendingRequests.has(sequence)) {
+            return Promise.reject(new Error('An MCUmgr request is already pending for this sequence number'));
+        }
+        let timeoutId;
+        const response = new Promise((resolve, reject) => {
+            timeoutId = setTimeout(() => {
+                this._pendingRequests.delete(sequence);
+                reject(new Error(`Timed out waiting for MCUmgr response (group ${group}, command ${id})`));
+            }, this._responseTimeout);
+            this._pendingRequests.set(sequence, {
+                group,
+                id,
+                responseOp: op === MGMT_OP_READ ? MGMT_OP_READ_RSP : MGMT_OP_WRITE_RSP,
+                resolve,
+                reject,
+                timeoutId
+            });
+        });
+        this._sendMessage(op, group, id, data).catch(error => {
+            const pendingRequest = this._pendingRequests.get(sequence);
+            if (pendingRequest) {
+                clearTimeout(pendingRequest.timeoutId);
+                this._pendingRequests.delete(sequence);
+                pendingRequest.reject(error);
+            }
+        });
+        return response;
+    }
+    cmdEnumCount() {
+        return this._requestMessage(MGMT_OP_READ, MGMT_GROUP_ID_ENUM, ENUM_MGMT_ID_COUNT);
+    }
+    cmdEnumList() {
+        return this._requestMessage(MGMT_OP_READ, MGMT_GROUP_ID_ENUM, ENUM_MGMT_ID_LIST);
+    }
+    cmdEnumSingle(index) {
+        return this._requestMessage(
+            MGMT_OP_READ,
+            MGMT_GROUP_ID_ENUM,
+            ENUM_MGMT_ID_SINGLE,
+            index === undefined ? {} : { index }
+        );
+    }
+    cmdEnumDetails(groups) {
+        const data = groups === undefined ? {} : { groups };
+        return this._requestMessage(MGMT_OP_READ, MGMT_GROUP_ID_ENUM, ENUM_MGMT_ID_DETAILS, data);
     }
     _processMessage(message) {
         let packet;
@@ -211,7 +273,14 @@ class MCUManager {
             this._logger.error(`Invalid SMP response: ${error.message || error}`);
             return;
         }
-        const { op, group, id, length } = packet;
+        const { op, group, id, length, sequence } = packet;
+
+        const pendingRequest = this._pendingRequests.get(sequence);
+        if (pendingRequest && pendingRequest.group === group && pendingRequest.id === id && pendingRequest.responseOp === op) {
+            clearTimeout(pendingRequest.timeoutId);
+            this._pendingRequests.delete(sequence);
+            pendingRequest.resolve(data);
+        }
 
         if (group === MGMT_GROUP_ID_IMAGE && id === IMG_MGMT_ID_UPLOAD) {
             // Clear timeout since we received a response
@@ -616,6 +685,11 @@ if (typeof module !== 'undefined' && module.exports) {
         MGMT_GROUP_ID_RUN,
         MGMT_GROUP_ID_FS,
         MGMT_GROUP_ID_SHELL,
+        MGMT_GROUP_ID_ENUM,
+        ENUM_MGMT_ID_COUNT,
+        ENUM_MGMT_ID_LIST,
+        ENUM_MGMT_ID_SINGLE,
+        ENUM_MGMT_ID_DETAILS,
         OS_MGMT_ID_ECHO,
         OS_MGMT_ID_CONS_ECHO_CTRL,
         OS_MGMT_ID_TASKSTAT,
