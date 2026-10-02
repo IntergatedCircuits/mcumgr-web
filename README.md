@@ -102,6 +102,11 @@ Install dependencies:
 npm install
 ```
 
+Start the local web app at `http://localhost:8080`:
+```bash
+npm start
+```
+
 Run tests:
 ```bash
 npm test

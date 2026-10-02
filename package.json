@@ -20,6 +20,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "start": "python3 -m http.server 8080 --directory .",
     "build:package": "node scripts/build-package.mjs",
     "prepack": "npm run build:package",
     "test": "jest",

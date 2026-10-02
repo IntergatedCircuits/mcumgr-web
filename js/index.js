@@ -43,6 +43,7 @@ const uploadDropZone = document.getElementById('upload-drop-zone');
 const uploadIcon = document.getElementById('upload-icon');
 const uploadDropTitle = document.getElementById('upload-drop-title');
 const uploadDropSubtitle = document.getElementById('upload-drop-subtitle');
+const ImageManagement = globalThis.McumgrImageManagement;
 
 const bluetoothAvailable = !!(navigator && navigator.bluetooth);
 const serialAvailable = !!(navigator && navigator.serial);
@@ -72,6 +73,19 @@ fastUpload.disabled = !bluetoothAvailable;
 let file = null;
 let fileData = null;
 let images = [];
+
+function setImageCommandStatus(message, isError = false) {
+    fileInfo.textContent = message;
+    fileInfo.classList.toggle('text-danger', isError);
+    fileInfo.classList.toggle('text-muted', !isError);
+}
+
+function refreshImageState() {
+    return mcumgr.cmdImageState().catch(error => {
+        console.error('[ERROR] Failed to refresh image state:', error);
+        setImageCommandStatus(`Could not refresh image state: ${error.message}`, true);
+    });
+}
 
 deviceNameInput.value = localStorage.getItem('deviceName') || '';
 deviceNameInput.addEventListener('change', () => {
@@ -146,6 +160,20 @@ mcumgr.onMessage(({ op, group, id, data, length }) => {
             }
             break;
         case MGMT_GROUP_ID_IMAGE:
+            const imageError = ImageManagement.getErrorMessage(data);
+            const shouldRefreshImageState = op === MGMT_OP_WRITE_RSP &&
+                (id === IMG_MGMT_ID_STATE || id === IMG_MGMT_ID_ERASE);
+            if (imageError) {
+                setImageCommandStatus(`Image command failed: ${imageError}`, true);
+                console.error('[ERROR] Image command failed:', imageError, data);
+                if (shouldRefreshImageState) refreshImageState();
+                return;
+            }
+            if (shouldRefreshImageState) {
+                setImageCommandStatus('Image command accepted. Refreshing image state...');
+                refreshImageState();
+                return;
+            }
             switch (id) {
                 case IMG_MGMT_ID_STATE:
                     console.log('[DEBUG] Image state response:', { op, group, id, data, length });
@@ -243,8 +271,10 @@ mcumgr.onMessage(({ op, group, id, data, length }) => {
                     });
 
                     console.log('[DEBUG] Setting button states...');
-                    testButton.disabled = !(data.images && data.images.length > 1 && data.images[1] && data.images[1].pending === false);
-                    confirmButton.disabled = !(data.images && data.images.length > 0 && data.images[0] && data.images[0].confirmed === false);
+                    const secondaryImage = ImageManagement.getSecondaryImage(data.images);
+                    const activeImage = ImageManagement.getActiveImage(data.images);
+                    testButton.disabled = !(secondaryImage && secondaryImage.pending === false && secondaryImage.hash);
+                    confirmButton.disabled = !(activeImage && activeImage.confirmed === false && activeImage.hash);
                     console.log('[DEBUG] Button states set - test:', testButton.disabled, 'confirm:', confirmButton.disabled);
                     break;
             }
@@ -559,13 +589,23 @@ eraseButton.addEventListener('click', async () => {
 });
 
 testButton.addEventListener('click', async () => {
-    if (images.length > 1 && images[1].pending === false) {
-        await mcumgr.cmdImageTest(images[1].hash);
+    const secondaryImage = ImageManagement.getSecondaryImage(images);
+    if (!secondaryImage || secondaryImage.pending !== false || !secondaryImage.hash) return;
+    setImageCommandStatus(`Sending test command for slot ${secondaryImage.slot}...`);
+    try {
+        await mcumgr.cmdImageTest(secondaryImage.hash);
+    } catch (error) {
+        setImageCommandStatus(`Test command error: ${error.message}`, true);
     }
 });
 
 confirmButton.addEventListener('click', async () => {
-    if (images.length > 0 && images[0].confirmed === false) {
-        await mcumgr.cmdImageConfirm(images[0].hash);
+    const activeImage = ImageManagement.getActiveImage(images);
+    if (!activeImage || activeImage.confirmed !== false || !activeImage.hash) return;
+    setImageCommandStatus(`Sending confirm command for slot ${activeImage.slot}...`);
+    try {
+        await mcumgr.cmdImageConfirm(activeImage.hash);
+    } catch (error) {
+        setImageCommandStatus(`Confirm command error: ${error.message}`, true);
     }
 });

@@ -508,6 +508,21 @@ Returns the connected device's Bluetooth name.
 console.log('Connected to:', mcumgr.name);
 ```
 
+#### `ImageManagement`
+
+The package also exports `ImageManagement` helpers for working with image-state responses:
+
+- `getErrorMessage(data)` returns a readable image-management error for SMP v1 `rc` or SMP v2 `err.rc` responses, or `null` on success.
+- `getActiveImage(images)` selects the active image using its metadata, with slot/index fallbacks.
+- `getSecondaryImage(images)` selects an inactive secondary image using its metadata, with slot/index fallbacks.
+
+```javascript
+import { ImageManagement } from 'mcumgr-web';
+
+const activeImage = ImageManagement.getActiveImage(response.images);
+const errorMessage = ImageManagement.getErrorMessage(response);
+```
+
 ## Error Handling
 
 ### Return Codes

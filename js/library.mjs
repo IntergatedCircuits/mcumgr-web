@@ -3,6 +3,7 @@ import CBOR from './cbor.js';
 import SMP from './protocol/smp.js';
 import baseTransport from './transports/base.js';
 import serialFraming from './transports/serial-framing.js';
+import imageManagement from './image-management.js';
 
 export const {
     MCUManager,
@@ -40,5 +41,6 @@ export const {
 
 export const MCUTransport = baseTransport.MCUTransport;
 export const SerialFraming = serialFraming;
+export const ImageManagement = imageManagement;
 export { CBOR, SMP };
 export default MCUManager;
