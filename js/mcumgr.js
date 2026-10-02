@@ -243,6 +243,12 @@ class MCUManager {
         });
         return response;
     }
+    request(op, group, id, data) {
+        if (op !== MGMT_OP_READ && op !== MGMT_OP_WRITE) {
+            return Promise.reject(new RangeError('MCUmgr request op must be READ or WRITE'));
+        }
+        return this._requestMessage(op, group, id, data);
+    }
     cmdEnumCount() {
         return this._requestMessage(MGMT_OP_READ, MGMT_GROUP_ID_ENUM, ENUM_MGMT_ID_COUNT);
     }

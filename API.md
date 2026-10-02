@@ -306,6 +306,35 @@ mcumgr.onImageUploadFinished(() => {
 });
 ```
 
+### Generic Management Requests
+
+#### `request(op, group, id, data)`
+
+Sends a generic SMP Management READ or WRITE request to any group and command ID. `data` is
+CBOR-encoded when provided, and the returned promise resolves with the decoded response payload.
+Responses are matched by sequence, group, command ID, and response operation; the configured
+response timeout applies.
+
+**Parameters:**
+- `op` (Number): `MGMT_OP_READ` or `MGMT_OP_WRITE`
+- `group` (Number): Management group ID, including custom group IDs
+- `id` (Number): Command ID within the group
+- `data` (Object, optional): Request payload to CBOR-encode
+
+**Returns:** `Promise<Object>` containing the decoded response data
+
+**Errors:** Rejects if not connected, sending fails, the connection is lost, the response times
+out, or `op` is not READ or WRITE. Management error fields in a response are returned as data;
+they are not converted into promise rejections.
+
+```javascript
+import { MGMT_OP_READ, MGMT_GROUP_ID_OS, OS_MGMT_ID_TASKSTAT } from 'mcumgr-web';
+
+const stats = await mcumgr.request(MGMT_OP_READ, MGMT_GROUP_ID_OS, OS_MGMT_ID_TASKSTAT);
+const customGroupId = 42;
+const customResponse = await mcumgr.request(MGMT_OP_READ, customGroupId, 0);
+```
+
 ### Management Group Discovery
 
 The Enumeration Management Group discovers which MCUmgr command groups the connected device

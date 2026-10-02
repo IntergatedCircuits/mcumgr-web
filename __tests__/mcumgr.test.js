@@ -413,6 +413,41 @@ describe('MCUManager', () => {
   });
 
   describe('Request/response management', () => {
+    test.each([
+      ['READ', MGMT_OP_READ, SMP.MGMT_OP_READ_RSP],
+      ['WRITE', MGMT_OP_WRITE, SMP.MGMT_OP_WRITE_RSP]
+    ])('supports generic %s requests for custom groups', async (_name, op, responseOp) => {
+      const group = 42;
+      const id = 7;
+      const requestData = { filter: 'active' };
+      global.CBOR.encode.mockReturnValue(new Uint8Array([0xa0]));
+      global.CBOR.decode.mockReturnValue({ result: 'ok' });
+      manager._transport = {
+        smpVersion: SMP.SMP_VERSION_1,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const response = manager.request(op, group, id, requestData);
+      const request = SMP.decodeMessage(manager._transport.sendMessage.mock.calls[0][0]);
+      expect(request).toMatchObject({ op, group, id });
+      expect(global.CBOR.encode).toHaveBeenCalledWith(requestData);
+
+      manager._processMessage(SMP.encodeMessage({
+        version: SMP.SMP_VERSION_1,
+        op: responseOp,
+        group,
+        sequence: request.sequence,
+        id
+      }, new Uint8Array([0xa0])));
+
+      await expect(response).resolves.toEqual({ result: 'ok' });
+    });
+
+    test('rejects response opcodes as requests', async () => {
+      await expect(manager.request(SMP.MGMT_OP_READ_RSP, 42, 7))
+        .rejects.toThrow('request op must be READ or WRITE');
+    });
+
     test('resolves an enumeration request with its matching SMP response', async () => {
       global.CBOR.encode.mockReturnValue(new Uint8Array([0xa0]));
       global.CBOR.decode.mockReturnValue({ count: 4 });
