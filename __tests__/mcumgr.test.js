@@ -21,7 +21,7 @@ describe('MCUManager', () => {
       info: jest.fn(),
       error: jest.fn()
     };
-    manager = new MCUManager({ logger: mockLogger });
+    manager = new MCUManager({ logger: mockLogger, cbor: global.CBOR });
 
     // Reset mocks
     jest.clearAllMocks();

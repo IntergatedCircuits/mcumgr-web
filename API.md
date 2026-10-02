@@ -31,7 +31,41 @@ MCUManager provides a JavaScript API for communicating with MCUmgr devices over 
 
 ## Installation
 
-MCUManager is a standalone library with no external dependencies (except the included CBOR library). Simply include the JavaScript files in your HTML:
+Install from npm:
+
+```bash
+npm install mcumgr-web
+```
+
+The package provides ESM imports for browser applications and Node.js, CommonJS `require()` support, and a standalone browser build for script-tag use. Browser transports require the relevant Web API and a secure context.
+
+### ESM
+
+```javascript
+import MCUManager, { SMP_VERSION_2 } from 'mcumgr-web';
+
+const mcumgr = new MCUManager({ smpVersion: SMP_VERSION_2 });
+await mcumgr.connect('serial');
+```
+
+### CommonJS
+
+```javascript
+const { MCUManager, SMP_VERSION_2 } = require('mcumgr-web');
+
+const mcumgr = new MCUManager({ smpVersion: SMP_VERSION_2 });
+```
+
+### Browser script tag
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/mcumgr-web"></script>
+<script>
+  const mcumgr = new Mcumgr.MCUManager();
+</script>
+```
+
+The source files can also be loaded individually without a bundler:
 
 ```html
 <script src="js/cbor.js"></script>

@@ -2,6 +2,8 @@
 
 This browser tool communicates with MCUmgr devices over Bluetooth LE or serial. It implements SMP v1 and v2, using CBOR-encoded management requests for device control and firmware updates.
 
+The protocol and transport client can also be installed as the `mcumgr-web` npm package. It provides ESM, CommonJS, and browser script-tag builds; see [API.md](API.md#installation) for installation and usage.
+
 Choose the transport and SMP version supported by the device in the connection screen. Bluetooth uses the SMP GATT service; serial uses Zephyr's MCUmgr console framing.
 
 > Prefer a command line? **[mcumgr-mac](https://github.com/boogie/mcumgr-mac)** is a

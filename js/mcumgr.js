@@ -1,4 +1,7 @@
 
+const CBOR = typeof module !== 'undefined' && module.exports
+    ? require('./cbor.js')
+    : globalThis.CBOR;
 const SMP = typeof module !== 'undefined' && module.exports
     ? require('./protocol/smp.js')
     : globalThis.McumgrSmp;
@@ -44,6 +47,8 @@ class MCUManager {
         this.SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
         this.CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
         this._defaultMtu = di.mtu || 400;
+        this._cbor = di.cbor || CBOR;
+        this._crypto = di.crypto || globalThis.crypto;
         this._defaultMaxChunkSize = di.maxChunkSize || 128;
         this._mtu = this._defaultMtu;
         this._maxChunkSize = this._defaultMaxChunkSize;
@@ -182,7 +187,7 @@ class MCUManager {
     }
     async _sendMessage(op, group, id, data) {
         if (!this._transport) throw new Error('No MCUmgr transport is connected');
-        const payload = typeof data === 'undefined' ? new Uint8Array() : new Uint8Array(CBOR.encode(data));
+        const payload = typeof data === 'undefined' ? new Uint8Array() : new Uint8Array(this._cbor.encode(data));
         const message = SMP.encodeMessage({
             op,
             group,
@@ -200,7 +205,7 @@ class MCUManager {
             packet = SMP.decodeMessage(message);
             if (packet.length > 0) {
                 const payload = packet.payload;
-                data = CBOR.decode(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength));
+                data = this._cbor.decode(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength));
             }
         } catch (error) {
             this._logger.error(`Invalid SMP response: ${error.message || error}`);
@@ -273,7 +278,10 @@ class MCUManager {
         return this._sendMessage(MGMT_OP_WRITE, MGMT_GROUP_ID_IMAGE, IMG_MGMT_ID_STATE, { hash, confirm: true });
     }
     _hash(image) {
-        return crypto.subtle.digest('SHA-256', image);
+        if (!this._crypto || !this._crypto.subtle) {
+            throw new Error('Web Crypto is not available; provide it with the crypto option');
+        }
+        return this._crypto.subtle.digest('SHA-256', image);
     }
     // Build the progress payload. Speed is a moving average over a short
     // trailing window (several samples) so the readout and ETA stay stable
@@ -396,7 +404,7 @@ class MCUManager {
             }
             const maxChunkSize = this._fast ? this._fastChunkCap : this._maxChunkSize;
             const mtu = this._fast ? this._fastMtu : this._mtu;
-            const mtuBasedLength = mtu - CBOR.encode(message).byteLength - nmpOverhead;
+            const mtuBasedLength = mtu - this._cbor.encode(message).byteLength - nmpOverhead;
             const length = Math.min(mtuBasedLength, maxChunkSize);
             message.data = new Uint8Array(this._uploadImage.slice(offset, offset + length));
 

@@ -1,8 +1,27 @@
 {
   "name": "mcumgr-web",
   "version": "1.0.0",
-  "description": "Browser-based MCUmgr client for Bluetooth LE and Serial",
+  "description": "Reusable MCUmgr client for SMP over Bluetooth LE and Serial",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "browser": "./dist/index.mjs",
+  "unpkg": "./dist/index.iife.js",
+  "jsdelivr": "./dist/index.iife.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "API.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build:package": "node scripts/build-package.mjs",
+    "prepack": "npm run build:package",
     "test": "jest",
     "test:ci": "jest --runInBand",
     "test:watch": "jest --watch",
@@ -17,9 +36,10 @@
     "iot"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.12",
+    "esbuild": "^0.28.2",
     "husky": "^8.0.3",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0"
