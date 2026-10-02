@@ -21,6 +21,7 @@
            target="_blank" rel="noopener" title="View source on GitHub">
             <i class="bi-github fs-5 align-middle"></i>
             <span class="ms-1 align-middle d-none d-sm-inline">GitHub</span>
+
         </a>
     </div>
 </nav>
@@ -41,9 +42,9 @@
                         <div class="alert alert-primary" role="alert" id="bluetooth-is-available">
                             <i class="bi-info-circle-fill me-2"></i>
                             <strong><span id="bluetooth-is-available-message"></span></strong>
-                                                        <p class="mb-0 mt-2 small">
-                                                              Bluetooth LE and Serial require browser support. Use a secure context (HTTPS or localhost); serial ports and Bluetooth devices are selected through the browser prompt.
-                                                        </p>
+                            <p class="mb-0 mt-2 small">
+                                Bluetooth LE and Serial require browser support. Use a secure context (HTTPS or localhost); serial ports and Bluetooth devices are selected through the browser prompt.
+                            </p>
                         </div>
 
                         <div id="connect-block" style="display: none;">
@@ -240,6 +241,29 @@
             </div>
         </div>
 
+        <div id="shell-console-card" class="card shadow-sm mb-4" hidden>
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi-terminal me-2"></i>Shell Console</h5>
+                <button id="button-shell-clear" type="button" class="btn btn-sm btn-light" aria-label="Clear console" title="Clear console">
+                    <i class="bi-trash3 me-1"></i>Clear console
+                </button>
+            </div>
+            <div class="card-body">
+                <pre id="shell-output" class="bg-dark text-light p-3 rounded mb-3" role="log" aria-live="polite" style="height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;"></pre>
+                <form id="shell-form">
+                    <label class="visually-hidden" for="shell-command">Shell command</label>
+                    <div class="input-group">
+                        <span class="input-group-text" aria-hidden="true">$</span>
+                        <input id="shell-command" type="text" class="form-control" autocomplete="off" spellcheck="false" placeholder="help">
+                        <button id="button-shell-send" type="submit" class="btn btn-primary">
+                            <i class="bi-play-fill me-1"></i>Run
+                        </button>
+                    </div>
+                </form>
+                <p id="shell-status" class="small text-muted mt-2 mb-0" role="status" aria-live="polite"></p>
+            </div>
+        </div>
+
 
     </div>
 </div>
@@ -250,7 +274,7 @@
 <script src="js/transports/serial-framing.js"></script>
 <script src="js/transports/bluetooth.js"></script>
 <script src="js/transports/serial.js"></script>
-<script src="js/mcumgr.js?v=13"></script>
+<script src="js/mcumgr.js?v=14"></script>
 <script src="js/image-management.js"></script>
-<script src="js/index.js?v=13"></script>
+<script src="js/index.js?v=15"></script>
 </main>

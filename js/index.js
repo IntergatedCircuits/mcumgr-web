@@ -18,6 +18,13 @@ const managementGroupsButton = document.getElementById('button-management-groups
 const managementGroupsStatus = document.getElementById('management-groups-status');
 const managementGroupsTableWrap = document.getElementById('management-groups-table-wrap');
 const managementGroupsTableBody = document.getElementById('management-groups-table-body');
+const shellConsoleCard = document.getElementById('shell-console-card');
+const shellForm = document.getElementById('shell-form');
+const shellCommandInput = document.getElementById('shell-command');
+const shellOutput = document.getElementById('shell-output');
+const shellStatus = document.getElementById('shell-status');
+const shellSendButton = document.getElementById('button-shell-send');
+const shellClearButton = document.getElementById('button-shell-clear');
 const disconnectButton = document.getElementById('button-disconnect');
 const resetButton = document.getElementById('button-reset');
 const imageStateButton = document.getElementById('button-image-state');
@@ -139,6 +146,7 @@ function renderManagementGroups(groups) {
 
 async function refreshManagementGroups() {
     managementGroupsButton.disabled = true;
+    shellConsoleCard.hidden = true;
     managementGroupsStatus.textContent = 'Querying device capabilities...';
     managementGroupsStatus.classList.remove('text-danger');
     renderManagementGroups([]);
@@ -153,6 +161,7 @@ async function refreshManagementGroups() {
         if (!Array.isArray(listResult.value.groups)) throw new Error('Device returned no management group list');
 
         const groupIds = listResult.value.groups;
+            shellConsoleCard.hidden = !groupIds.includes(MGMT_GROUP_ID_SHELL);
         let groups = groupIds.map(group => ({ group }));
         let detailsUnavailable = false;
         if (groupIds.length) {
@@ -183,6 +192,53 @@ async function refreshManagementGroups() {
 }
 
 managementGroupsButton.addEventListener('click', refreshManagementGroups);
+function appendShellOutput(text) {
+    shellOutput.textContent += text;
+    shellOutput.scrollTop = shellOutput.scrollHeight;
+}
+
+shellClearButton.addEventListener('click', () => {
+    shellOutput.textContent = '';
+    shellStatus.textContent = '';
+});
+
+shellForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const command = shellCommandInput.value.trim();
+    if (!command) return;
+
+    appendShellOutput(`$ ${command}\n`);
+    shellCommandInput.value = '';
+    shellCommandInput.disabled = true;
+    shellSendButton.disabled = true;
+    shellStatus.textContent = 'Running command...';
+    try {
+        const response = await mcumgr.cmdShell(command);
+        if (response && response.err) {
+            appendShellOutput(`[MCUmgr error: group ${response.err.group}, code ${response.err.rc}]\n`);
+            shellStatus.textContent = 'Command was rejected by the device';
+        } else if (response && !('o' in response) && response.rc) {
+            appendShellOutput(`[MCUmgr error: code ${response.rc}]\n`);
+            shellStatus.textContent = 'Command was rejected by the device';
+        } else {
+            const output = response && typeof response.o === 'string' ? response.o : '';
+            if (output) appendShellOutput(output + (output.endsWith('\n') ? '' : '\n'));
+            const returnCode = response && (response.ret ?? response.rc);
+            if (Number.isInteger(returnCode)) appendShellOutput(`[exit ${returnCode}]\n`);
+            else if (!output) appendShellOutput('[no output]\n');
+            shellStatus.textContent = Number.isInteger(returnCode)
+                ? `Command finished with exit code ${returnCode}`
+                : 'Command finished';
+        }
+    } catch (error) {
+        appendShellOutput(`[request failed: ${error.message || error}]\n`);
+        shellStatus.textContent = 'Command request failed';
+    } finally {
+        shellCommandInput.disabled = false;
+        shellSendButton.disabled = false;
+        shellCommandInput.focus();
+    }
+});
 
 deviceNameInput.value = localStorage.getItem('deviceName') || '';
 deviceNameInput.addEventListener('change', () => {
@@ -205,6 +261,8 @@ mcumgr.onConnecting(() => {
 });
 mcumgr.onConnect(() => {
     deviceName.innerText = mcumgr.name;
+    shellOutput.textContent = '';
+    shellStatus.textContent = '';
     connectionError.style.display = 'none'; // Hide any previous errors
     screens.connecting.style.display = 'none';
     screens.initial.style.display = 'none';

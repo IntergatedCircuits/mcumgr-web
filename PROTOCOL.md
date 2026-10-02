@@ -99,10 +99,11 @@ MGMT_GROUP_ID_RUN      = 7   // Runtime information
 MGMT_GROUP_ID_FS       = 8   // File system operations
 MGMT_GROUP_ID_SHELL    = 9   // Shell command execution
 MGMT_GROUP_ID_ENUM      = 10  // Supported management group discovery
+SHELL_MGMT_ID_EXEC      = 0   // Execute a shell command
 ```
 
 **Implementation Status:**
-- **Implemented:** OS (group 0), Image (group 1), Enumeration (group 10)
+- **Implemented:** OS (group 0), Image (group 1), Shell (group 9), Enumeration (group 10)
 - **Not implemented:** Other groups (can be added as needed)
 
 ### Enumeration Management Group
@@ -119,6 +120,19 @@ Group ID: `10` (`MGMT_GROUP_ID_ENUM`). Requests use `MGMT_OP_READ` and return de
 The `details` command and the `name`/`handlers` fields are optional Zephyr features. Applications
 can append additional detail fields through Zephyr's Enumeration callback. The browser displays
 these extra fields as returned by the device. SMP errors use the usual v1 `rc` or v2 `err` map.
+
+### Shell Management Group
+
+Group ID: `9` (`MGMT_GROUP_ID_SHELL`). Command ID `0` (`SHELL_MGMT_ID_EXEC`) executes one command
+line using `MGMT_OP_WRITE`.
+
+```javascript
+{ argv: ['kernel version'] }
+```
+
+The usual response is `{ o: string, ret: number }`, with command output and return code. Older
+Zephyr configurations may return the command status under `rc`. SMP management errors use the
+version-specific `rc` or `err` fields. The Shell group must be enabled by the device firmware.
 
 ## Image Management Group
 

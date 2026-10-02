@@ -30,6 +30,7 @@
         ENUM_MGMT_ID_LIST: 1,
         ENUM_MGMT_ID_SINGLE: 2,
         ENUM_MGMT_ID_DETAILS: 3,
+        SHELL_MGMT_ID_EXEC: 0,
         OS_MGMT_ID_ECHO: 0,
         OS_MGMT_ID_CONS_ECHO_CTRL: 1,
         OS_MGMT_ID_TASKSTAT: 2,

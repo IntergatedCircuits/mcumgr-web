@@ -14,6 +14,7 @@ This document provides comprehensive documentation for the MCUManager JavaScript
   - [Management Group Discovery](#management-group-discovery)
   - [Image Management Commands](#image-management-commands)
   - [OS Management Commands](#os-management-commands)
+  - [Shell Commands](#shell-commands)
   - [Utility Methods](#utility-methods)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
@@ -518,6 +519,24 @@ mcumgr.onMessage(({ group, id, data }) => {
 });
 
 await mcumgr.smpEcho('Hello, device!');
+```
+
+### Shell Commands
+
+#### `cmdShell(command)`
+
+Executes one command through Zephyr's Shell Management Group. `command` may be a command-line
+string or an array of argument strings. The returned promise resolves to the decoded response,
+normally `{ o, ret }`, where `o` is shell output and `ret` is the command's exit code. Devices
+configured with legacy shell return codes may use `rc` instead of `ret`.
+
+Shell Management is device-configurable. The web console is shown only when Enumeration reports
+that the connected device supports Shell (group ID 9). Commands run to completion; this is not an
+interactive terminal session.
+
+```javascript
+const { o, ret } = await mcumgr.cmdShell('kernel version');
+console.log(o, ret);
 ```
 
 ### Utility Methods

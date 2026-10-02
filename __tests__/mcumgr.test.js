@@ -6,6 +6,7 @@ const {
   MGMT_GROUP_ID_IMAGE,
   MGMT_GROUP_ID_ENUM,
   ENUM_MGMT_ID_DETAILS,
+  SHELL_MGMT_ID_EXEC,
   OS_MGMT_ID_ECHO,
   OS_MGMT_ID_RESET,
   IMG_MGMT_ID_STATE,
@@ -490,6 +491,40 @@ describe('MCUManager', () => {
     });
   });
 
+  describe('Shell command', () => {
+    test('sends argv using Shell Management and resolves command output', async () => {
+      global.CBOR.encode.mockReturnValue(new Uint8Array([0xa0]));
+      global.CBOR.decode.mockReturnValue({ o: 'Zephyr 4.0.0', ret: 0 });
+      manager._transport = {
+        smpVersion: SMP.SMP_VERSION_1,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+
+      const response = manager.cmdShell('kernel version');
+      const request = SMP.decodeMessage(manager._transport.sendMessage.mock.calls[0][0]);
+      expect(request).toMatchObject({
+        op: MGMT_OP_WRITE,
+        group: SMP.MGMT_GROUP_ID_SHELL,
+        id: SHELL_MGMT_ID_EXEC
+      });
+      expect(global.CBOR.encode).toHaveBeenCalledWith({ argv: ['kernel version'] });
+
+      manager._processMessage(SMP.encodeMessage({
+        version: SMP.SMP_VERSION_1,
+        op: SMP.MGMT_OP_WRITE_RSP,
+        group: SMP.MGMT_GROUP_ID_SHELL,
+        sequence: request.sequence,
+        id: SHELL_MGMT_ID_EXEC
+      }, new Uint8Array([0xa0])));
+
+      await expect(response).resolves.toEqual({ o: 'Zephyr 4.0.0', ret: 0 });
+    });
+
+    test('rejects empty shell commands', async () => {
+      await expect(manager.cmdShell('  ')).rejects.toThrow('non-empty string');
+    });
+  });
+
   describe('Command Methods', () => {
     beforeEach(() => {
       // Mock _sendMessage for command tests
@@ -692,6 +727,7 @@ describe('MCUManager', () => {
       expect(MGMT_GROUP_ID_OS).toBe(0);
       expect(MGMT_GROUP_ID_IMAGE).toBe(1);
       expect(MGMT_GROUP_ID_ENUM).toBe(10);
+      expect(require('../js/mcumgr.js').MGMT_GROUP_ID_SHELL).toBe(9);
     });
 
     test('should export command IDs', () => {
@@ -700,6 +736,7 @@ describe('MCUManager', () => {
       expect(IMG_MGMT_ID_STATE).toBe(0);
       expect(IMG_MGMT_ID_UPLOAD).toBe(1);
       expect(IMG_MGMT_ID_ERASE).toBe(5);
+      expect(SHELL_MGMT_ID_EXEC).toBe(0);
     });
   });
 });

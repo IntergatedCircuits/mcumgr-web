@@ -33,6 +33,7 @@ const {
     ENUM_MGMT_ID_LIST,
     ENUM_MGMT_ID_SINGLE,
     ENUM_MGMT_ID_DETAILS,
+    SHELL_MGMT_ID_EXEC,
     OS_MGMT_ID_ECHO,
     OS_MGMT_ID_CONS_ECHO_CTRL,
     OS_MGMT_ID_TASKSTAT,
@@ -259,6 +260,20 @@ class MCUManager {
     cmdEnumDetails(groups) {
         const data = groups === undefined ? {} : { groups };
         return this._requestMessage(MGMT_OP_READ, MGMT_GROUP_ID_ENUM, ENUM_MGMT_ID_DETAILS, data);
+    }
+    async cmdShell(command) {
+        const argv = Array.isArray(command)
+            ? command
+            : typeof command === 'string' ? [command.trim()] : [];
+        if (!argv.length || argv.some(argument => typeof argument !== 'string') || !argv[0].trim()) {
+            throw new TypeError('Shell command must be a non-empty string or argument array');
+        }
+        return this._requestMessage(
+            MGMT_OP_WRITE,
+            MGMT_GROUP_ID_SHELL,
+            SHELL_MGMT_ID_EXEC,
+            { argv }
+        );
     }
     _processMessage(message) {
         let packet;
@@ -690,6 +705,7 @@ if (typeof module !== 'undefined' && module.exports) {
         ENUM_MGMT_ID_LIST,
         ENUM_MGMT_ID_SINGLE,
         ENUM_MGMT_ID_DETAILS,
+        SHELL_MGMT_ID_EXEC,
         OS_MGMT_ID_ECHO,
         OS_MGMT_ID_CONS_ECHO_CTRL,
         OS_MGMT_ID_TASKSTAT,
