@@ -6,7 +6,13 @@ const screens = {
 
 const deviceName = document.getElementById('device-name');
 const deviceNameInput = document.getElementById('device-name-input');
-const connectButton = document.getElementById('button-connect');
+const deviceNameFilter = document.getElementById('device-name-filter');
+const smpVersionInput = document.getElementById('smp-version');
+const bluetoothConnectOption = document.getElementById('bluetooth-connect-option');
+const serialConnectOption = document.getElementById('serial-connect-option');
+const connectBluetoothButton = document.getElementById('button-connect-bluetooth');
+const connectSerialButton = document.getElementById('button-connect-serial');
+const connectionErrorTipsList = document.getElementById('connection-error-tips-list');
 const echoButton = document.getElementById('button-echo');
 const disconnectButton = document.getElementById('button-disconnect');
 const resetButton = document.getElementById('button-reset');
@@ -21,6 +27,7 @@ const fileImage = document.getElementById('file-image');
 const fileUpload = document.getElementById('file-upload');
 const fileCancel = document.getElementById('file-cancel');
 const fastUpload = document.getElementById('fast-upload');
+const fastUploadOption = document.getElementById('fast-upload-option');
 // Restore the saved "Fast upload" preference (off by default, for compatibility).
 fastUpload.checked = localStorage.getItem('fastUpload') === 'true';
 fastUpload.addEventListener('change', () => {
@@ -37,20 +44,36 @@ const uploadIcon = document.getElementById('upload-icon');
 const uploadDropTitle = document.getElementById('upload-drop-title');
 const uploadDropSubtitle = document.getElementById('upload-drop-subtitle');
 
-if (navigator && navigator.bluetooth && navigator.bluetooth.getAvailability()) {
-    bluetoothIsAvailableMessage.innerText = 'Bluetooth is available in your browser.';
-    bluetoothIsAvailable.className = 'alert alert-success';
-    connectBlock.style.display = 'block';
-} else {
-    bluetoothIsAvailable.className = 'alert alert-danger';
-    bluetoothIsAvailableMessage.innerText = 'Bluetooth is not available in your browser.';
-}
+const bluetoothAvailable = !!(navigator && navigator.bluetooth);
+const serialAvailable = !!(navigator && navigator.serial);
+bluetoothConnectOption.hidden = !bluetoothAvailable;
+serialConnectOption.hidden = !serialAvailable;
+deviceNameFilter.hidden = !bluetoothAvailable;
+deviceNameInput.disabled = !bluetoothAvailable;
+const supportedTransports = [
+    bluetoothAvailable && 'Bluetooth LE',
+    serialAvailable && 'Serial'
+].filter(Boolean);
+bluetoothIsAvailableMessage.innerText = supportedTransports.length
+    ? `Available transports: ${supportedTransports.join(', ')}.`
+    : 'Web Bluetooth and Web Serial are not available in this browser.';
+bluetoothIsAvailable.className = supportedTransports.length ? 'alert alert-success' : 'alert alert-danger';
+connectBlock.style.display = supportedTransports.length ? 'block' : 'none';
+
+const savedSmpVersion = localStorage.getItem('smpVersion');
+if (savedSmpVersion === '0' || savedSmpVersion === '1') smpVersionInput.value = savedSmpVersion;
+
+smpVersionInput.addEventListener('change', () => {
+    localStorage.setItem('smpVersion', smpVersionInput.value);
+});
+fastUploadOption.style.display = bluetoothAvailable ? '' : 'none';
+fastUpload.disabled = !bluetoothAvailable;
 
 let file = null;
 let fileData = null;
 let images = [];
 
-deviceNameInput.value = localStorage.getItem('deviceName');
+deviceNameInput.value = localStorage.getItem('deviceName') || '';
 deviceNameInput.addEventListener('change', () => {
     localStorage.setItem('deviceName', deviceNameInput.value);
 });
@@ -61,6 +84,7 @@ closeConnectionError.addEventListener('click', () => {
 });
 
 const mcumgr = new MCUManager();
+let connectionTransport = 'bluetooth';
 mcumgr.onConnecting(() => {
     console.log('Connecting...');
     connectionError.style.display = 'none'; // Hide any previous errors
@@ -98,6 +122,9 @@ mcumgr.onDisconnect((error) => {
 
     // Show error message if disconnect was due to an error
     if (error) {
+        connectionErrorTipsList.querySelectorAll('[data-transport]').forEach(tip => {
+            tip.hidden = tip.dataset.transport !== connectionTransport;
+        });
         connectionErrorMessage.innerText = error.message || 'An unknown error occurred while connecting to the device.';
         connectionError.style.display = 'block';
     }
@@ -501,23 +528,24 @@ uploadDropZone.addEventListener('drop', (e) => {
     }
 });
 
-connectButton.addEventListener('click', async () => {
-    let filters = null;
-    if (deviceNameInput.value) {
-        filters = [{ namePrefix: deviceNameInput.value }];
-    };
-    await mcumgr.connect(filters);
-});
+async function connectWithTransport(type) {
+    connectionTransport = type;
+    mcumgr.smpVersion = Number(smpVersionInput.value);
+    if (type === 'serial') {
+        await mcumgr.connect('serial');
+    } else {
+        const filters = deviceNameInput.value ? [{ namePrefix: deviceNameInput.value }] : undefined;
+        await mcumgr.connect('bluetooth', filters);
+    }
+}
 
-disconnectButton.addEventListener('click', async () => {
-    mcumgr.disconnect();
-});
+connectBluetoothButton.addEventListener('click', () => connectWithTransport('bluetooth'));
+connectSerialButton.addEventListener('click', () => connectWithTransport('serial'));
 
 echoButton.addEventListener('click', async () => {
     const message = prompt('Enter a text message to send', 'Hello World!');
     await mcumgr.smpEcho(message);
 });
-
 resetButton.addEventListener('click', async () => {
     await mcumgr.cmdReset();
 });

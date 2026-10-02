@@ -20,6 +20,7 @@
             this._port = null;
             this._reader = null;
             this._writer = null;
+            this._readTask = null;
             this._codec = new Framing.SerialConsoleCodec();
             this._flushed = false;
         }
@@ -41,7 +42,7 @@
                 this._reader = this._port.readable.getReader();
                 this._writer = this._port.writable.getWriter();
                 this._flushed = false;
-                this._readIncoming();
+                this._readTask = this._readIncoming();
                 await this._connected();
             } catch (error) {
                 this._logger.error(error);
@@ -50,9 +51,10 @@
         }
 
         async _readIncoming() {
+            const reader = this._reader;
             try {
-                while (this._reader) {
-                    const { value, done } = await this._reader.read();
+                while (reader && this._reader === reader) {
+                    const { value, done } = await reader.read();
                     if (done) break;
                     if (!value) continue;
                     for (const packet of this._codec.push(value)) this._rawMessage(packet);
@@ -61,6 +63,13 @@
             } catch (error) {
                 this._logger.info(error);
                 if (!this._userRequestedDisconnect) await this._disconnected(error);
+            } finally {
+                try {
+                    if (reader) reader.releaseLock();
+                } catch (_) {
+                    // The stream may already have released its reader.
+                }
+                if (this._reader === reader) this._reader = null;
             }
         }
 
@@ -76,8 +85,14 @@
         async disconnect() {
             await super.disconnect();
             try {
-                if (this._reader) await this._reader.cancel();
-                if (this._writer) await this._writer.close();
+                const reader = this._reader;
+                const readTask = this._readTask;
+                if (reader) await reader.cancel();
+                if (readTask) await readTask;
+                if (this._writer) {
+                    await this._writer.close();
+                    this._writer.releaseLock();
+                }
                 if (this._port) await this._port.close();
             } catch (error) {
                 this._logger.info(error);
@@ -89,6 +104,7 @@
         async _disconnected(error = null) {
             this._reader = null;
             this._writer = null;
+            this._readTask = null;
             this._port = null;
             this._codec.reset();
             this._flushed = false;

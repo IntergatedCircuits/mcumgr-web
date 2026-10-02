@@ -1,44 +1,52 @@
 
-// Opcodes
-const MGMT_OP_READ = 0;
-const MGMT_OP_READ_RSP = 1;
-const MGMT_OP_WRITE = 2;
-const MGMT_OP_WRITE_RSP = 3;
-
-// Groups
-const MGMT_GROUP_ID_OS = 0;
-const MGMT_GROUP_ID_IMAGE = 1;
-const MGMT_GROUP_ID_STAT = 2;
-const MGMT_GROUP_ID_CONFIG = 3;
-const MGMT_GROUP_ID_LOG = 4;
-const MGMT_GROUP_ID_CRASH = 5;
-const MGMT_GROUP_ID_SPLIT = 6;
-const MGMT_GROUP_ID_RUN = 7;
-const MGMT_GROUP_ID_FS = 8;
-const MGMT_GROUP_ID_SHELL = 9;
-
-// OS group
-const OS_MGMT_ID_ECHO = 0;
-const OS_MGMT_ID_CONS_ECHO_CTRL = 1;
-const OS_MGMT_ID_TASKSTAT = 2;
-const OS_MGMT_ID_MPSTAT = 3;
-const OS_MGMT_ID_DATETIME_STR = 4;
-const OS_MGMT_ID_RESET = 5;
-
-// Image group
-const IMG_MGMT_ID_STATE = 0;
-const IMG_MGMT_ID_UPLOAD = 1;
-const IMG_MGMT_ID_FILE = 2;
-const IMG_MGMT_ID_CORELIST = 3;
-const IMG_MGMT_ID_CORELOAD = 4;
-const IMG_MGMT_ID_ERASE = 5;
+const SMP = typeof module !== 'undefined' && module.exports
+    ? require('./protocol/smp.js')
+    : globalThis.McumgrSmp;
+const MCUTransportBluetooth = typeof module !== 'undefined' && module.exports
+    ? require('./transports/bluetooth.js').MCUTransportBluetooth
+    : globalThis.MCUTransportBluetooth;
+const MCUTransportSerial = typeof module !== 'undefined' && module.exports
+    ? require('./transports/serial.js').MCUTransportSerial
+    : globalThis.MCUTransportSerial;
+const {
+    SMP_VERSION_1,
+    SMP_VERSION_2,
+    MGMT_OP_READ,
+    MGMT_OP_READ_RSP,
+    MGMT_OP_WRITE,
+    MGMT_OP_WRITE_RSP,
+    MGMT_GROUP_ID_OS,
+    MGMT_GROUP_ID_IMAGE,
+    MGMT_GROUP_ID_STAT,
+    MGMT_GROUP_ID_CONFIG,
+    MGMT_GROUP_ID_LOG,
+    MGMT_GROUP_ID_CRASH,
+    MGMT_GROUP_ID_SPLIT,
+    MGMT_GROUP_ID_RUN,
+    MGMT_GROUP_ID_FS,
+    MGMT_GROUP_ID_SHELL,
+    OS_MGMT_ID_ECHO,
+    OS_MGMT_ID_CONS_ECHO_CTRL,
+    OS_MGMT_ID_TASKSTAT,
+    OS_MGMT_ID_MPSTAT,
+    OS_MGMT_ID_DATETIME_STR,
+    OS_MGMT_ID_RESET,
+    IMG_MGMT_ID_STATE,
+    IMG_MGMT_ID_UPLOAD,
+    IMG_MGMT_ID_FILE,
+    IMG_MGMT_ID_CORELIST,
+    IMG_MGMT_ID_CORELOAD,
+    IMG_MGMT_ID_ERASE
+} = SMP;
 
 class MCUManager {
     constructor(di = {}) {
         this.SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
         this.CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
-        this._mtu = 400;
-        this._maxChunkSize = di.maxChunkSize || 128; // Reduced from 400 to 128 bytes for stability
+        this._defaultMtu = di.mtu || 400;
+        this._defaultMaxChunkSize = di.maxChunkSize || 128;
+        this._mtu = this._defaultMtu;
+        this._maxChunkSize = this._defaultMaxChunkSize;
         this._chunkDelay = di.chunkDelay || 50; // Add 50ms delay between chunks
         // "Fast upload" preset (opt-in via cmdUpload): bigger chunks and no
         // inter-chunk delay. Off by default so the tool stays compatible with
@@ -59,9 +67,13 @@ class MCUManager {
         // Throughput tracking (re-initialised per upload in cmdUpload).
         this._uploadStartTime = 0;
         this._speedSamples = [];
-        this._device = null;
-        this._service = null;
-        this._characteristic = null;
+        this._transport = null;
+        this._transportOptions = di.transportOptions || {};
+        this._transportFactory = di.transportFactory || {
+            bluetooth: options => new MCUTransportBluetooth(options),
+            serial: options => new MCUTransportSerial(options)
+        };
+        this._smpVersion = di.smpVersion;
         this._connectCallback = null;
         this._connectingCallback = null;
         this._disconnectCallback = null;
@@ -74,74 +86,48 @@ class MCUManager {
         this._maxConsecutiveTimeouts = 2; // After this many timeouts, try increasing timeout
         this._maxTotalTimeouts = 6; // After this many total timeouts, give up
         this._totalTimeouts = 0;
-        this._buffer = new Uint8Array();
         this._logger = di.logger || { info: console.log, error: console.error };
         this._seq = 0;
         this._userRequestedDisconnect = false;
         this._reconnectDelay = di.reconnectDelay || 1000;
     }
-    async _requestDevice(filters) {
-        const params = {
-            acceptAllDevices: true,
-            optionalServices: [this.SERVICE_UUID]
-        };
-        if (filters) {
-            params.filters = filters;
-            params.acceptAllDevices = false;
+    set smpVersion(version) {
+        if (version !== SMP_VERSION_1 && version !== SMP_VERSION_2) {
+            throw new RangeError(`Unsupported SMP version ${version}`);
         }
-        return navigator.bluetooth.requestDevice(params);
+        this._smpVersion = version;
     }
-    async connect(filters) {
-        try {
-            this._device = await this._requestDevice(filters);
-            this._logger.info(`Connecting to device ${this.name}...`);
-            this._device.addEventListener('gattserverdisconnected', async event => {
-                this._logger.info(event);
-                if (!this._userRequestedDisconnect) {
-                    this._logger.info('Trying to reconnect');
-                    this._connect(this._reconnectDelay);
-                } else {
-                    this._disconnected();
-                }
-            });
-            this._connect(0);
-        } catch (error) {
-            this._logger.error(error);
-            await this._disconnected(error);
-            return;
+    get smpVersion() {
+        if (this._smpVersion !== undefined) return this._smpVersion;
+        return this._transport ? (this._transport.smpVersion ?? SMP_VERSION_1) : SMP_VERSION_1;
+    }
+    async connect(type = 'bluetooth', options) {
+        if (typeof type !== 'string') {
+            options = type;
+            type = 'bluetooth';
         }
-    }
-    _connect(delay = 1000) {
-        setTimeout(async () => {
-            try {
-                if (this._connectingCallback) this._connectingCallback();
-                const server = await this._device.gatt.connect();
-                this._logger.info(`Server connected.`);
-                this._service = await server.getPrimaryService(this.SERVICE_UUID);
-                this._logger.info(`Service connected.`);
-                this._characteristic = await this._service.getCharacteristic(this.CHARACTERISTIC_UUID);
-                this._characteristic.addEventListener('characteristicvaluechanged', this._notification.bind(this));
-                await this._characteristic.startNotifications();
-                await this._connected();
-                if (this._uploadIsInProgress) {
-                    // Give device time to fully boot and stabilize after restart
-                    // This is important if device restarted during firmware update
-                    this._logger.info('Upload in progress - waiting 2s before resuming...');
-                    setTimeout(() => {
-                        this._logger.info('Resuming upload from offset ' + this._uploadOffset);
-                        this._uploadNext();
-                    }, 2000);
-                }
-            } catch (error) {
-                this._logger.error(error);
-                // Only show error to user on initial connection attempt, not on reconnection attempts
-                await this._disconnected(delay === 0 ? error : null);
-            }
-        }, delay);
+        const factory = this._transportFactory[type];
+        if (!factory) throw new Error(`Unknown transport type: ${type}`);
+
+        this._transport = factory({
+            ...this._transportOptions,
+            logger: this._logger,
+            reconnectDelay: this._reconnectDelay
+        });
+        this._transportType = type;
+        this._mtu = type === 'serial' ? 140 : this._defaultMtu;
+        this._maxChunkSize = type === 'serial' ? 64 : this._defaultMaxChunkSize;
+        this._chunkTimeoutDefault = type === 'serial' ? 10000 : 5000;
+        this._chunkTimeoutMax = type === 'serial' ? 30000 : 15000;
+        this._transport
+            .onConnecting(() => this._connecting())
+            .onConnect(() => this._connected())
+            .onDisconnect(error => this._disconnected(error))
+            .onRawMessage(message => this._processMessage(message));
+        await this._transport.connect(options);
     }
     disconnect() {
-        this._userRequestedDisconnect = true;
-        return this._device.gatt.disconnect();
+        return this._transport ? this._transport.disconnect() : Promise.resolve();
     }
     onConnecting(callback) {
         this._connectingCallback = callback;
@@ -176,60 +162,51 @@ class MCUManager {
         return this;
     }
     async _connected() {
-        if (this._connectCallback) this._connectCallback();
+        if (this._connectCallback) await this._connectCallback();
+        if (this._uploadIsInProgress) {
+            setTimeout(() => this._uploadNext(), 2000);
+        }
     }
     async _disconnected(error = null) {
         this._logger.info('Disconnected.');
         if (this._disconnectCallback) this._disconnectCallback(error);
-        this._device = null;
-        this._service = null;
-        this._characteristic = null;
+        this._transport = null;
         this._uploadIsInProgress = false;
         this._userRequestedDisconnect = false;
     }
     get name() {
-        return this._device && this._device.name;
+        return this._transport && this._transport.name;
+    }
+    _connecting() {
+        if (this._connectingCallback) this._connectingCallback();
     }
     async _sendMessage(op, group, id, data) {
-        const _flags = 0;
-        let encodedData = [];
-        if (typeof data !== 'undefined') {
-            encodedData = [...new Uint8Array(CBOR.encode(data))];
-        }
-        const length_lo = encodedData.length & 255;
-        const length_hi = encodedData.length >> 8;
-        const group_lo = group & 255;
-        const group_hi = group >> 8;
-        const message = [op, _flags, length_hi, length_lo, group_hi, group_lo, this._seq, id, ...encodedData];
-        // console.log('>'  + message.map(x => x.toString(16).padStart(2, '0')).join(' '));
-        await this._characteristic.writeValueWithoutResponse(Uint8Array.from(message));
-        this._seq = (this._seq + 1) % 256;
-    }
-    _notification(event) {
-        // console.log('message received');
-        const message = new Uint8Array(event.target.value.buffer);
-        // console.log(message);
-        // console.log('<'  + [...message].map(x => x.toString(16).padStart(2, '0')).join(' '));
-        this._buffer = new Uint8Array([...this._buffer, ...message]);
-        const messageLength = this._buffer[2] * 256 + this._buffer[3];
-        if (this._buffer.length < messageLength + 8) return;
-        this._processMessage(this._buffer.slice(0, messageLength + 8));
-        this._buffer = this._buffer.slice(messageLength + 8);
-    }
-    _processMessage(message) {
-        const [op, _flags, length_hi, length_lo, group_hi, group_lo, _seq, id] = message;
-        const data = CBOR.decode(message.slice(8).buffer);
-        const length = length_hi * 256 + length_lo;
-        const group = group_hi * 256 + group_lo;
-
-        console.log('[MCUManager DEBUG] Message received:', {
+        if (!this._transport) throw new Error('No MCUmgr transport is connected');
+        const payload = typeof data === 'undefined' ? new Uint8Array() : new Uint8Array(CBOR.encode(data));
+        const message = SMP.encodeMessage({
             op,
             group,
+            sequence: this._seq,
             id,
-            length,
-            dataKeys: data ? Object.keys(data) : 'null',
-            data: data
-        });
+            version: this.smpVersion
+        }, payload);
+        await this._transport.sendMessage(message);
+        this._seq = (this._seq + 1) % 256;
+    }
+    _processMessage(message) {
+        let packet;
+        let data = {};
+        try {
+            packet = SMP.decodeMessage(message);
+            if (packet.length > 0) {
+                const payload = packet.payload;
+                data = CBOR.decode(payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength));
+            }
+        } catch (error) {
+            this._logger.error(`Invalid SMP response: ${error.message || error}`);
+            return;
+        }
+        const { op, group, id, length } = packet;
 
         if (group === MGMT_GROUP_ID_IMAGE && id === IMG_MGMT_ID_UPLOAD) {
             // Clear timeout since we received a response
@@ -238,7 +215,8 @@ class MCUManager {
             }
 
             // Check for error response
-            if (data.rc && data.rc !== 0) {
+            const errorCode = data && data.err && typeof data.err.rc === 'number' ? data.err.rc : data && data.rc;
+            if (errorCode !== undefined && errorCode !== 0) {
                 this._uploadIsInProgress = false;
                 const errorMessages = {
                     1: 'Unknown error',
@@ -252,12 +230,12 @@ class MCUManager {
                     9: 'Data is corrupt',
                     10: 'Device is busy'
                 };
-                const errorMsg = errorMessages[data.rc] || `Device returned error code ${data.rc}`;
+                const errorMsg = errorMessages[errorCode] || `Device returned error code ${errorCode}`;
                 this._logger.error(`Upload failed: ${errorMsg}`);
                 if (this._imageUploadErrorCallback) {
                     this._imageUploadErrorCallback({
                         error: `Upload failed: ${errorMsg}`,
-                        errorCode: data.rc,
+                        errorCode,
                         consecutiveTimeouts: this._consecutiveTimeouts,
                         totalTimeouts: this._totalTimeouts
                     });
@@ -266,7 +244,7 @@ class MCUManager {
             }
 
             // Success response with offset
-            if ((data.rc === 0 || data.rc === undefined) && data.off !== undefined) {
+            if ((!data.err || data.err.rc === 0) && (data.rc === 0 || data.rc === undefined) && data.off !== undefined) {
                 // Reset consecutive timeout counter on successful response
                 this._consecutiveTimeouts = 0;
                 this._uploadOffset = data.off;
@@ -366,7 +344,7 @@ class MCUManager {
                 return;
             }
             if (this._consecutiveTimeouts >= this._maxConsecutiveTimeouts) {
-                this._chunkTimeout = Math.min(this._chunkTimeout * 2, 15000); // Max 15 seconds
+                this._chunkTimeout = Math.min(this._chunkTimeout * 2, this._chunkTimeoutMax);
                 this._logger.info(`Increased chunk timeout to ${this._chunkTimeout}ms`);
                 if (this._imageUploadProgressCallback) {
                     this._imageUploadProgressCallback(this._uploadProgress({
@@ -460,7 +438,7 @@ class MCUManager {
         // Fast-upload preset; reset the per-upload chunk auto-downgrade and the
         // windowed-send state. Fast mode pipelines several chunks; otherwise the
         // upload stays strictly sequential (window 1).
-        this._fast = !!options.fast;
+        this._fast = !!options.fast && this._transportType !== 'serial';
         this._fastChunkCap = this._fastMaxChunkSize;
         this._window = this._fast ? this._fastWindow : 1;
         this._sendOffset = 0;
@@ -473,7 +451,7 @@ class MCUManager {
         // Reset timeout tracking
         this._consecutiveTimeouts = 0;
         this._totalTimeouts = 0;
-        this._chunkTimeout = 5000; // Reset to initial value
+        this._chunkTimeout = this._chunkTimeoutDefault || 5000;
 
         this._uploadNext();
     }
@@ -612,6 +590,10 @@ class MCUManager {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         MCUManager,
+        SMP_VERSION_1,
+        SMP_VERSION_2,
+        MCUTransportBluetooth,
+        MCUTransportSerial,
         MGMT_OP_READ,
         MGMT_OP_READ_RSP,
         MGMT_OP_WRITE,

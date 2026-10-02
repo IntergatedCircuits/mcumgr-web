@@ -34,52 +34,68 @@
                 <div class="card shadow-lg login-card">
                     <div class="card-body p-5">
                         <div class="text-center mb-4">
-                            <i class="bi-bluetooth display-1 text-primary"></i>
                             <h1 class="h2 mt-3 mb-2">mcumgr web</h1>
-                            <p class="text-muted">Web Bluetooth Device Manager</p>
+                            <p class="text-muted">Bluetooth LE and Serial Device Manager</p>
                         </div>
 
                         <div class="alert alert-primary" role="alert" id="bluetooth-is-available">
                             <i class="bi-info-circle-fill me-2"></i>
                             <strong><span id="bluetooth-is-available-message"></span></strong>
-                            <p class="mb-0 mt-2 small">
-                              This tool is compatible with desktops (or laptops) with the <b>latest Chrome and Edge</b> browsers (other Chromium-based browsers may also work), and working
-                              Bluetooth connection (most laptops have them these days). You can also try it from Chrome on Android, or Bluefy on iOS/iPadOS.
-                            </p>
-                        </div>
-
-                        <div class="alert alert-danger position-relative" role="alert" id="connection-error" style="display: none; padding-right: 3rem;">
-                            <i class="bi-x-circle-fill position-absolute" id="close-connection-error" style="cursor: pointer; font-size: 1.2rem; top: 1rem; right: 1rem;"></i>
-                            <div>
-                                <i class="bi-exclamation-triangle-fill me-2"></i>
-                                <strong>Connection Failed</strong>
-                            </div>
-                            <p class="mb-2 mt-2" id="connection-error-message"></p>
-                            <div class="small" id="connection-error-tips">
-                                <strong>Troubleshooting tips:</strong>
-                                <ul class="mb-0 mt-1 ps-0 list-unstyled">
-                                    <li>• Make sure the device is powered on and in range</li>
-                                    <li>• Check if the device is already connected to another app or browser tab</li>
-                                    <li>• Try forgetting the device in your OS Bluetooth settings and reconnect</li>
-                                    <li>• Power cycle the device (turn it off and on)</li>
-                                    <li>• Refresh this page and try again</li>
-                                </ul>
-                            </div>
+                                                        <p class="mb-0 mt-2 small">
+                                                              Bluetooth LE and Serial require browser support. Use a secure context (HTTPS or localhost); serial ports and Bluetooth devices are selected through the browser prompt.
+                                                        </p>
                         </div>
 
                         <div id="connect-block" style="display: none;">
                             <div class="mb-3">
+                                <label for="smp-version" class="form-label">SMP protocol version</label>
+                                <select id="smp-version" class="form-select">
+                                    <option value="0">SMP v1</option>
+                                    <option value="1">SMP v2</option>
+                                </select>
+                            </div>
+                            <div class="mb-3" id="device-name-filter" hidden>
                                 <label for="device-name-input" class="form-label">Device Name Filter (Optional)</label>
                                 <div class="form-text mb-2">Only show devices whose name starts with this prefix</div>
                                 <input id="device-name-input" type="text" class="form-control form-control-lg" placeholder="e.g., 'Quantum' to filter devices starting with Quantum">
                             </div>
-                            <div class="d-grid">
-                                <button id="button-connect" type="submit" class="btn btn-primary btn-lg">
-                                    <i class="bi-bluetooth me-2"></i> Connect to Device
-                                </button>
+                            <div class="d-flex flex-column flex-sm-row gap-2">
+                                <div id="bluetooth-connect-option" class="flex-fill" hidden>
+                                    <button id="button-connect-bluetooth" type="button" class="btn btn-primary btn-lg w-100">
+                                        <i class="bi-bluetooth me-2"></i>Connect to Bluetooth Device
+                                    </button>
+                                </div>
+                                <div id="serial-connect-option" class="flex-fill" hidden>
+                                    <button id="button-connect-serial" type="button" class="btn btn-outline-primary btn-lg w-100">
+                                        <i class="bi-usb-plug me-2"></i>Connect to Serial Device
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
+                        <div class="alert alert-danger position-relative mt-3" role="alert" id="connection-error" style="display: none; padding-right: 3rem;">
+                                <i class="bi-x-circle-fill position-absolute" id="close-connection-error" style="cursor: pointer; font-size: 1.2rem; top: 1rem; right: 1rem;"></i>
+                                <div>
+                                    <i class="bi-exclamation-triangle-fill me-2"></i>
+                                    <strong>Connection Failed</strong>
+                                </div>
+                                <p class="mb-2 mt-2" id="connection-error-message"></p>
+                                <div class="small" id="connection-error-tips">
+                                    <strong>Troubleshooting tips:</strong>
+                                    <ul class="mb-0 mt-1 ps-0 list-unstyled" id="connection-error-tips-list">
+                                        <li>• Make sure the device is powered on</li>
+                                        <li data-transport="bluetooth">• Keep the device within Bluetooth range</li>
+                                        <li data-transport="bluetooth">• Check whether the device is connected to another app or browser tab</li>
+                                        <li data-transport="bluetooth">• Try forgetting the device in your OS Bluetooth settings and reconnect</li>
+                                        <li data-transport="serial" hidden>• Use a USB data cable; charge-only cables do not expose a serial port</li>
+                                        <li data-transport="serial" hidden>• Close terminal or other apps that may already be using the serial port</li>
+                                        <li data-transport="serial" hidden>• Reconnect the device and select its port in the browser prompt</li>
+                                        <li data-transport="serial" hidden>• If the port is missing, check its driver and OS access permissions</li>
+                                        <li>• Power cycle the device (turn it off and on)</li>
+                                        <li>• Refresh this page and try again</li>
+                                    </ul>
+                                </div>
+                            </div>
                         <div class="credits-section mt-4 pt-4 border-top border-light text-center">
                             <p class="small text-muted mb-1">
                                 Created by <a href="https://github.com/boogie/mcumgr-web" target="_blank" class="text-decoration-none fw-semibold">András Bártházi</a>
@@ -88,10 +104,11 @@
                                 Thanks to all <a href="https://github.com/boogie/mcumgr-web/graphs/contributors" target="_blank" class="text-decoration-none">contributors</a> for their valuable contributions
                             </p>
                         </div>
-                    </div>
                 </div>
             </div>
         </div>
+    </div>
+
     </div>
 
     <!-- Connecting Screen -->
@@ -177,7 +194,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="form-check mt-3">
+                <div class="form-check mt-3" id="fast-upload-option">
                     <input class="form-check-input" type="checkbox" id="fast-upload" />
                     <label class="form-check-label fw-semibold" for="fast-upload">Fast upload</label>
                     <div class="form-text small mt-1">
@@ -203,6 +220,11 @@
 </div>
 
 <script src="js/cbor.js"></script>
+<script src="js/protocol/smp.js"></script>
+<script src="js/transports/base.js"></script>
+<script src="js/transports/serial-framing.js"></script>
+<script src="js/transports/bluetooth.js"></script>
+<script src="js/transports/serial.js"></script>
 <script src="js/mcumgr.js?v=12"></script>
 <script src="js/index.js?v=12"></script>
 </main>

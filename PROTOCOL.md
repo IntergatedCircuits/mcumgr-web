@@ -1,6 +1,6 @@
 # MCU Manager Protocol Specification
 
-This document describes the Simple Management Protocol (SMP) implementation used by MCUManager for communicating with devices over Bluetooth Low Energy.
+This document describes the Simple Management Protocol (SMP) implementation used by MCUManager over Bluetooth Low Energy and Zephyr MCUmgr serial console transport.
 
 ## Table of Contents
 
@@ -13,6 +13,7 @@ This document describes the Simple Management Protocol (SMP) implementation used
 - [CBOR Encoding](#cbor-encoding)
 - [MCUboot Image Format](#mcuboot-image-format)
 - [Bluetooth Transport](#bluetooth-transport)
+- [Serial Transport](#serial-transport)
 - [External References](#external-references)
 
 ## Overview
@@ -23,7 +24,8 @@ MCU Manager uses the **Simple Management Protocol (SMP)** for device management 
 - Binary protocol with 8-byte header + CBOR payload
 - Request/response model
 - Organized into management groups (OS, Image, Stats, etc.)
-- Transport-agnostic (this implementation uses Bluetooth LE)
+- Transport-agnostic (implemented transports: Bluetooth LE and Zephyr serial console)
+- Supports SMP versions 1 and 2
 - Sequence numbers for matching requests and responses
 
 ## SMP Protocol Structure
@@ -36,7 +38,7 @@ Every SMP message consists of an 8-byte header followed by a CBOR-encoded payloa
  0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|    Op Code    |    Flags      |          Length (16-bit)      |
+| Ver + Op Code |    Flags      |          Length (16-bit)      |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 |        Group ID (16-bit)      |  Sequence Num |  Command ID   |
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -49,13 +51,15 @@ Every SMP message consists of an 8-byte header followed by a CBOR-encoded payloa
 
 | Byte | Field | Description |
 |------|-------|-------------|
-| 0 | Op Code | Operation type (read, write, etc.) |
+| 0 | Version + Op Code | Version in bits 3-4; operation in bits 0-2 |
 | 1 | Flags | Reserved for future use (currently 0) |
 | 2-3 | Length | Payload length in bytes (big-endian) |
 | 4-5 | Group ID | Management group identifier (big-endian) |
 | 6 | Sequence | Sequence number (0-255, wraps around) |
 | 7 | Command ID | Command within the group |
 | 8+ | Payload | CBOR-encoded data |
+
+SMP v1 uses version bits `0b00`; SMP v2 uses `0b01`. The operation remains in the low three bits of byte 0. SMP v2 carries detailed command errors in an `err` map, while SMP v1 uses the legacy `rc` response field.
 
 ### Operation Codes
 
@@ -441,9 +445,20 @@ CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48'
 - Transparent to user during long uploads
 - No data loss on reconnection
 
+## Serial Transport
+
+The Web Serial adapter targets Zephyr's MCUmgr serial-over-console mode, not raw binary UART or SLIP. The SMP packet itself is unchanged; the adapter wraps it in Zephyr console framing:
+
+1. Prefix the SMP packet with a 16-bit big-endian length that includes the CRC.
+2. Append CRC-16/ITU-T over the SMP packet.
+3. Base64-encode the framed bytes and split them into lines of at most 127 bytes.
+4. Prefix the first line with `0x06 0x09`, continuation lines with `0x04 0x14`, and terminate each line with LF.
+
+The decoder accepts arbitrary Serial read chunk boundaries, discards console text, reassembles fragments, and verifies CRC before passing an SMP packet to the manager. Zephyr framing constants and CRC behavior are covered by standalone tests.
+
 ## Return Codes
 
-All SMP responses include an `rc` (return code) field indicating success or failure.
+In SMP v1, error responses use a top-level `rc` (return code). SMP v2 group-specific errors use an `err` map containing `group` and `rc`; legacy error responses may still use the top-level field.
 
 ### Standard Return Codes
 

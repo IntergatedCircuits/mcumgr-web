@@ -1,16 +1,16 @@
-# MCU Manager (Web Bluetooth)
+# MCU Manager (Web Bluetooth and Web Serial)
 
-This tool is the Web Bluetooth version of MCU Manager that enables a user to communicate with and manage remote devices running the Mynewt OS. It uses a connection profile to establish a connection with a device and sends command requests to the device.
+This browser tool communicates with MCUmgr devices over Bluetooth LE or serial. It implements SMP v1 and v2, using CBOR-encoded management requests for device control and firmware updates.
 
-The main focus is implementing firmware updates via Web Bluetooth, however other commands might be supported as well.
+Choose the transport and SMP version supported by the device in the connection screen. Bluetooth uses the SMP GATT service; serial uses Zephyr's MCUmgr console framing.
 
 > Prefer a command line? **[mcumgr-mac](https://github.com/boogie/mcumgr-mac)** is a
 > native macOS CLI version of the same tool.
 
 ## Features
 
-- **Firmware Upload**: Upload MCUboot-formatted firmware images over Bluetooth LE
-- **Fast Upload** (optional): larger chunks and pipelined writes for much faster transfers, with automatic fallback for devices that need conservative settings
+- **Firmware Upload**: Upload MCUboot-formatted firmware images over Bluetooth LE or serial
+- **Fast Bluetooth Upload** (optional): larger chunks and pipelined writes for much faster transfers, with automatic fallback for devices that need conservative settings
 - **Image Management**: Test, confirm, and erase firmware images
 - **Device Control**: Reset device, send echo commands
 - **Progress Tracking**: Real-time progress with live transfer speed and a time-remaining estimate
@@ -21,52 +21,16 @@ The main focus is implementing firmware updates via Web Bluetooth, however other
 
 **Online:** Try MCU Manager by visiting **https://boogie.github.io/mcumgr-web/** with a supported browser.
 
-**Local:** With the latest Chrome or Edge, simply open `index.html` directly in your browser.
+**Local:** For Bluetooth, open `index.html` in a supported browser. For Serial, serve the folder from `localhost`, for example with `python3 -m http.server 8000`, then open `http://localhost:8000`.
 
-**Note:** When using a web server, Web Bluetooth requires HTTPS or localhost for security reasons.
+**Note:** Web Bluetooth and Web Serial require a secure context: HTTPS or localhost.
 
 ## Browser Compatibility
 
-The Web Bluetooth API provides the ability to connect and interact with Bluetooth Low Energy peripherals.
+Browser support changes over time. Check the browser compatibility data for each API:
 
-### Compatibility Matrix
-
-| Platform | Browser | Support | Notes |
-|----------|---------|---------|-------|
-| **Windows** | Chrome | ✅ Full | Recommended |
-| **Windows** | Edge | ✅ Full | Chromium-based |
-| **Windows** | Opera | ❌ No | Web Bluetooth disabled by default |
-| **Windows** | Firefox | ❌ No | Not implemented |
-| **macOS** | Chrome | ✅ Full | Recommended |
-| **macOS** | Edge | ✅ Full | Chromium-based |
-| **macOS** | Opera | ❌ No | Web Bluetooth disabled by default |
-| **macOS** | Safari | ❌ No | Web Bluetooth not supported |
-| **macOS** | Firefox | ❌ No | Not implemented |
-| **Linux** | Chrome | ✅ Full | Recommended |
-| **Linux** | Edge | ✅ Full | Chromium-based |
-| **Linux** | Opera | ❌ No | Web Bluetooth disabled by default |
-| **Linux** | Firefox | ❌ No | Not implemented |
-| **Android** | Chrome | ⚠️ Possible | Untested, likely works |
-| **Android** | Edge | ⚠️ Possible | Untested, likely works |
-| **Android** | Opera | ⚠️ Possible | Untested, likely works |
-| **Android** | Firefox | ❌ No | Not implemented |
-| **iOS / iPadOS** | Safari | ❌ No | WebKit limitation |
-| **iOS / iPadOS** | Chrome | ❌ No | Uses WebKit engine |
-| **iOS / iPadOS** | Edge | ❌ No | Uses WebKit engine |
-| **iOS / iPadOS** | [Bluefy](https://apps.apple.com/hu/app/bluefy-web-ble-browser/id1492822055) | ⚠️ Possible | May require app updates |
-
-**Legend:**
-- ✅ **Full Support** - Tested and working
-- ⚠️ **Possible** - Might work but untested
-- ❌ **No Support** - Web Bluetooth not available
-
-**Notes:**
-- Safari, Chrome, Edge, and Opera on iOS use the Safari WebKit engine, which does not support Web Bluetooth
-- Desktop and mobile Firefox have not implemented Web Bluetooth
-- Opera has Web Bluetooth disabled by default and cannot be enabled
-- For the best experience, use the latest version of Chrome or Edge
-- Android Chrome should work but is untested
-- On iOS/iPadOS, Bluefy may work but might require updates
+- [Web Serial API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API)
+- [Web Bluetooth API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API)
 
 ## Documentation
 
@@ -129,7 +93,7 @@ See [API.md](API.md) for complete documentation.
 
 ### Running Tests
 
-This project uses Jest for automated testing. Tests are automatically run on every git commit via pre-commit hooks.
+This project uses Jest for automated testing. Protocol and transport tests run without physical devices using injected browser APIs and in-memory byte streams. Tests are also run on every git commit and in GitHub Actions.
 
 Install dependencies:
 ```bash
@@ -139,6 +103,11 @@ npm install
 Run tests:
 ```bash
 npm test
+```
+
+Run the CI-equivalent command locally:
+```bash
+npm run test:ci
 ```
 
 Run tests in watch mode:
@@ -154,11 +123,14 @@ npm run test:coverage
 ### Test Structure
 
 - `__tests__/mcumgr.test.js` - Tests for the MCUManager class (connection, messaging, image upload, validation)
+- `__tests__/smp.test.js` - SMP v1/v2 packet encoding, decoding, and stream reassembly
+- `__tests__/serial-framing.test.js` - Zephyr console framing, CRC, fragmentation, and recovery
+- `__tests__/transports.test.js` - Web Bluetooth and Web Serial adapters using injected APIs
 - `__tests__/cbor.test.js` - Tests for CBOR encoding/decoding
 - `__tests__/setup.js` - Test environment setup and mocks
 
-The test suite includes 73 tests covering:
-- MCUManager class functionality
+The test suite covers:
+- MCUManager transport selection and protocol handling
   - Constructor and dependency injection
   - Callback registration
   - Device connection and disconnection
@@ -167,6 +139,8 @@ The test suite includes 73 tests covering:
   - Firmware upload with chunking
   - Command methods (reset, echo, image state, etc.)
   - Sequence number management
+- Bluetooth and Serial transport behavior without browser hardware
+- SMP v1/v2 packet handling and Zephyr serial console framing
 - CBOR encoding/decoding
   - Primitive types (boolean, null, undefined)
   - Numbers (integers, floats, large numbers)
@@ -199,4 +173,5 @@ See LICENSE file for details.
 - **Live Demo:** https://boogie.github.io/mcumgr-web/
 - **MCUboot:** https://www.mcuboot.com/
 - **Apache Mynewt:** https://mynewt.apache.org/
+- **Web Serial API:** https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API
 - **Web Bluetooth API:** https://developer.mozilla.org/en-US/docs/Web/API/Web_Bluetooth_API

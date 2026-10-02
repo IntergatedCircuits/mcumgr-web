@@ -49,23 +49,25 @@ describe('Serial transport', () => {
     test('opens an injected serial port and writes Zephyr console-framed SMP data', async () => {
         const writes = [];
         let finishRead;
+        const releaseReaderLock = jest.fn();
+        const releaseWriterLock = jest.fn();
+        const reader = {
+            read: () => new Promise(resolve => { finishRead = resolve; }),
+            cancel: async () => { if (finishRead) finishRead({ done: true }); },
+            releaseLock: releaseReaderLock
+        };
+        const writer = {
+            write: async chunk => writes.push(Uint8Array.from(chunk)),
+            close: jest.fn().mockResolvedValue(undefined),
+            releaseLock: releaseWriterLock
+        };
         const port = {
             addEventListener: jest.fn(),
             open: jest.fn().mockResolvedValue(undefined),
             close: jest.fn().mockResolvedValue(undefined),
             getInfo: () => ({ usbVendorId: 0x1915, usbProductId: 0x521f }),
-            readable: {
-                getReader: () => ({
-                    read: () => new Promise(resolve => { finishRead = resolve; }),
-                    cancel: async () => { if (finishRead) finishRead({ done: true }); }
-                })
-            },
-            writable: {
-                getWriter: () => ({
-                    write: async chunk => writes.push(Uint8Array.from(chunk)),
-                    close: jest.fn().mockResolvedValue(undefined)
-                })
-            }
+            readable: { getReader: () => reader },
+            writable: { getWriter: () => writer }
         };
         const serialApi = { requestPort: jest.fn().mockResolvedValue(port) };
         const transport = new MCUTransportSerial({ serialApi, baudRate: 230400, logger: { info: jest.fn(), error: jest.fn() } });
@@ -89,5 +91,7 @@ describe('Serial transport', () => {
 
         await transport.disconnect();
         expect(port.close).toHaveBeenCalledTimes(1);
+        expect(releaseReaderLock).toHaveBeenCalledTimes(1);
+        expect(releaseWriterLock).toHaveBeenCalledTimes(1);
     });
 });

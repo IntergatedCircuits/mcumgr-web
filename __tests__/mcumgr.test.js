@@ -10,6 +10,7 @@ const {
   IMG_MGMT_ID_UPLOAD,
   IMG_MGMT_ID_ERASE
 } = require('../js/mcumgr.js');
+const SMP = require('../js/protocol/smp.js');
 
 describe('MCUManager', () => {
   let manager;
@@ -31,10 +32,9 @@ describe('MCUManager', () => {
       expect(manager.SERVICE_UUID).toBe('8d53dc1d-1db7-4cd3-868b-8a527460aa84');
       expect(manager.CHARACTERISTIC_UUID).toBe('da2e7828-fbce-4e01-ae9e-261174997c48');
       expect(manager._mtu).toBe(400);
-      expect(manager._device).toBeNull();
+      expect(manager._transport).toBeNull();
       expect(manager._seq).toBe(0);
       expect(manager._uploadIsInProgress).toBe(false);
-      expect(manager._userRequestedDisconnect).toBe(false);
     });
 
     test('should accept custom logger via dependency injection', () => {
@@ -108,8 +108,72 @@ describe('MCUManager', () => {
     });
 
     test('should return device name when device is connected', () => {
-      manager._device = { name: 'TestDevice' };
+      manager._transport = { name: 'TestDevice' };
       expect(manager.name).toBe('TestDevice');
+    });
+  });
+
+  describe('Transport Selection', () => {
+    function createTransport() {
+      return {
+        smpVersion: SMP.SMP_VERSION_1,
+        onConnecting() { return this; },
+        onConnect() { return this; },
+        onDisconnect() { return this; },
+        onRawMessage() { return this; },
+        connect: jest.fn().mockResolvedValue(undefined),
+        sendMessage: jest.fn().mockResolvedValue(undefined)
+      };
+    }
+
+    test('forwards the transport connecting event to the manager callback', async () => {
+      const connectingCallback = jest.fn();
+      const transport = createTransport();
+      transport.onConnecting = function (callback) {
+        this.connectingCallback = callback;
+        return this;
+      };
+      transport.connect = jest.fn(async () => transport.connectingCallback());
+      const mgr = new MCUManager({ transportFactory: { serial: () => transport }, logger: mockLogger });
+      mgr.onConnecting(connectingCallback);
+
+      await mgr.connect('serial');
+
+      expect(connectingCallback).toHaveBeenCalledTimes(1);
+    });
+
+    test('connects using the selected transport and sends SMP v2 when requested', async () => {
+      const transport = createTransport();
+      const transportFactory = { serial: jest.fn(() => transport) };
+      const mgr = new MCUManager({ transportFactory, logger: mockLogger });
+      mgr.smpVersion = SMP.SMP_VERSION_2;
+
+      await mgr.connect('serial', { baudRate: 230400 });
+      await mgr.cmdImageState();
+
+      expect(transportFactory.serial).toHaveBeenCalled();
+      expect(transport.connect).toHaveBeenCalledWith({ baudRate: 230400 });
+      const sentPacket = transport.sendMessage.mock.calls[0][0];
+      expect(SMP.decodeMessage(sentPacket)).toMatchObject({ version: SMP.SMP_VERSION_2, op: MGMT_OP_READ, group: MGMT_GROUP_ID_IMAGE });
+
+      mgr._uploadNext = jest.fn();
+      await mgr.cmdUpload(new Uint8Array(100).buffer, 0, { fast: true });
+      expect(mgr._fast).toBe(false);
+      expect(mgr._maxChunkSize).toBe(64);
+      expect(mgr._mtu).toBe(140);
+      expect(mgr._chunkTimeout).toBe(10000);
+    });
+
+    test('keeps the legacy connect(filters) call on Bluetooth', async () => {
+      const transport = createTransport();
+      const transportFactory = { bluetooth: jest.fn(() => transport) };
+      const mgr = new MCUManager({ transportFactory, logger: mockLogger });
+      const filters = [{ namePrefix: 'NRF' }];
+
+      await mgr.connect(filters);
+
+      expect(transportFactory.bluetooth).toHaveBeenCalled();
+      expect(transport.connect).toHaveBeenCalledWith(filters);
     });
   });
 
@@ -275,10 +339,11 @@ describe('MCUManager', () => {
       const message = new Uint8Array([
         MGMT_OP_READ, // op
         0x00, // flags
-        0x00, 0x00, // length (will be set by CBOR)
+        0x00, 0x01, // length
         0x00, MGMT_GROUP_ID_IMAGE, // group
         0x05, // seq
         IMG_MGMT_ID_STATE, // id
+        0xff // mocked CBOR payload
       ]);
 
       manager._processMessage(message);
@@ -288,7 +353,7 @@ describe('MCUManager', () => {
         group: MGMT_GROUP_ID_IMAGE,
         id: IMG_MGMT_ID_STATE,
         data: { rc: 0, test: 'data' },
-        length: 0
+        length: 1
       });
     });
 
@@ -304,10 +369,11 @@ describe('MCUManager', () => {
       const message = new Uint8Array([
         MGMT_OP_WRITE, // op
         0x00, // flags
-        0x00, 0x00, // length
+        0x00, 0x01, // length
         0x00, MGMT_GROUP_ID_IMAGE, // group
         0x05, // seq
         IMG_MGMT_ID_UPLOAD, // id
+        0xff // mocked CBOR payload
       ]);
 
       manager._processMessage(message);
@@ -317,28 +383,29 @@ describe('MCUManager', () => {
       expect(mockCallback).not.toHaveBeenCalled(); // Upload responses don't trigger message callback
     });
 
-    test('should buffer incomplete messages', () => {
+    test('should surface SMP v2 upload errors', () => {
+      const errorCallback = jest.fn();
+      manager.onImageUploadError(errorCallback);
+      manager._uploadIsInProgress = true;
+      global.CBOR.decode.mockReturnValue({ err: { group: MGMT_GROUP_ID_IMAGE, rc: 2 } });
+      const response = SMP.encodeMessage({
+        version: SMP.SMP_VERSION_2,
+        op: SMP.MGMT_OP_WRITE_RSP,
+        group: MGMT_GROUP_ID_IMAGE,
+        id: IMG_MGMT_ID_UPLOAD
+      }, Uint8Array.from([0xff]));
+
+      manager._processMessage(response);
+
+      expect(errorCallback).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 2 }));
+    });
+
+    test('should ignore malformed response packets', () => {
       const mockCallback = jest.fn();
       manager.onMessage(mockCallback);
-
-      // Create notification event with partial message
-      const partialMessage = new Uint8Array([
-        MGMT_OP_READ, 0x00, 0x00, 0x10 // Indicates 16 bytes of data, but we'll send less
-      ]);
-
-      const event = {
-        target: {
-          value: {
-            buffer: partialMessage.buffer
-          }
-        }
-      };
-
-      manager._notification(event);
-
-      // Should buffer but not process
-      expect(manager._buffer.length).toBe(4);
+      manager._processMessage(new Uint8Array([MGMT_OP_READ, 0, 0, 4]));
       expect(mockCallback).not.toHaveBeenCalled();
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringContaining('Invalid SMP response'));
     });
   });
 
@@ -482,9 +549,9 @@ describe('MCUManager', () => {
 
   describe('Sequence Number Management', () => {
     beforeEach(() => {
-      // Create a real characteristic mock
-      manager._characteristic = {
-        writeValueWithoutResponse: jest.fn().mockResolvedValue(undefined)
+      manager._transport = {
+        smpVersion: 0,
+        sendMessage: jest.fn().mockResolvedValue(undefined)
       };
     });
 
@@ -493,6 +560,7 @@ describe('MCUManager', () => {
 
       await manager._sendMessage(MGMT_OP_READ, MGMT_GROUP_ID_OS, OS_MGMT_ID_ECHO, {});
       expect(manager._seq).toBe(1);
+      expect(manager._transport.sendMessage).toHaveBeenCalledWith(expect.any(Uint8Array));
 
       await manager._sendMessage(MGMT_OP_READ, MGMT_GROUP_ID_OS, OS_MGMT_ID_ECHO, {});
       expect(manager._seq).toBe(2);
@@ -511,32 +579,25 @@ describe('MCUManager', () => {
       const mockCallback = jest.fn();
       manager.onDisconnect(mockCallback);
 
-      manager._device = { name: 'Test' };
-      manager._service = {};
-      manager._characteristic = {};
+      manager._transport = { name: 'Test' };
       manager._uploadIsInProgress = true;
-      manager._userRequestedDisconnect = true;
 
       await manager._disconnected();
 
-      expect(manager._device).toBeNull();
-      expect(manager._service).toBeNull();
-      expect(manager._characteristic).toBeNull();
+      expect(manager._transport).toBeNull();
       expect(manager._uploadIsInProgress).toBe(false);
-      expect(manager._userRequestedDisconnect).toBe(false);
       expect(mockCallback).toHaveBeenCalled();
     });
 
-    test('disconnect should set user requested flag and disconnect', () => {
-      const mockGatt = {
+    test('disconnect should delegate to the active transport', async () => {
+      const mockTransport = {
         disconnect: jest.fn()
       };
-      manager._device = { gatt: mockGatt };
+      manager._transport = mockTransport;
 
-      manager.disconnect();
+      await manager.disconnect();
 
-      expect(manager._userRequestedDisconnect).toBe(true);
-      expect(mockGatt.disconnect).toHaveBeenCalled();
+      expect(mockTransport.disconnect).toHaveBeenCalled();
     });
   });
 

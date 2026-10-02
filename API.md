@@ -19,7 +19,7 @@ This document provides comprehensive documentation for the MCUManager JavaScript
 
 ## Overview
 
-MCUManager provides a JavaScript API for communicating with devices running Mynewt OS over Web Bluetooth. The library implements the Simple Management Protocol (SMP) with CBOR encoding for efficient binary communication.
+MCUManager provides a JavaScript API for communicating with MCUmgr devices over Web Bluetooth or Web Serial. The library implements SMP v1 and v2 with CBOR encoding; transport details are handled by separate adapters.
 
 **Key Features:**
 - Firmware upload and verification
@@ -35,6 +35,11 @@ MCUManager is a standalone library with no external dependencies (except the inc
 
 ```html
 <script src="js/cbor.js"></script>
+<script src="js/protocol/smp.js"></script>
+<script src="js/transports/base.js"></script>
+<script src="js/transports/serial-framing.js"></script>
+<script src="js/transports/bluetooth.js"></script>
+<script src="js/transports/serial.js"></script>
 <script src="js/mcumgr.js"></script>
 ```
 
@@ -96,12 +101,13 @@ const mcumgr = new MCUManager({
 
 ### Connection Methods
 
-#### `connect(filters)`
+#### `connect(type, options)`
 
-Initiates a connection to a BLE device. Opens the browser's device picker if no device was previously selected.
+Initiates a connection using the selected transport. The default is Bluetooth LE. The older `connect(filters)` form remains supported and is treated as a Bluetooth connection.
 
 **Parameters:**
-- `filters` (Array, optional): Web Bluetooth filters to restrict device selection
+- `type` (String, optional): `bluetooth` or `serial`; defaults to `bluetooth`
+- `options` (Array or Object, optional): For Bluetooth, an array of Web Bluetooth device filters. For Serial, a Web Serial `requestPort()` options object.
   - Example: `[{ name: 'MyDevice' }]` or `[{ services: [serviceUuid] }]`
 
 **Returns:** `Promise<void>`
@@ -115,13 +121,29 @@ await mcumgr.connect();
 await mcumgr.connect([{ name: 'MyNRF52' }]);
 
 // Connect to device with name prefix
-await mcumgr.connect([{ namePrefix: 'NRF' }]);
+await mcumgr.connect('bluetooth', [{ namePrefix: 'NRF' }]);
+
+// Open the browser's serial-port picker
+await mcumgr.connect('serial');
+
+// Restrict available serial ports
+await mcumgr.connect('serial', { filters: [{ usbVendorId: 0x1915 }] });
 ```
 
 **Behavior:**
 - On successful connection, triggers `onConnect` callback
 - On disconnection (unless user-initiated), automatically attempts to reconnect after 1 second
 - Auto-reconnect continues firmware upload if one was in progress
+- Serial uses Zephyr MCUmgr console framing and does not automatically reconnect
+
+#### `smpVersion`
+
+Selects the SMP version used for requests. Values are `0` for SMP v1 and `1` for SMP v2. The default is SMP v1.
+
+```javascript
+mcumgr.smpVersion = 1; // SMP v2
+await mcumgr.connect('serial');
+```
 
 #### `disconnect()`
 

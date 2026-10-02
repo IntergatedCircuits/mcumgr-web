@@ -1,15 +1,17 @@
 {
   "name": "mcumgr-web",
   "version": "1.0.0",
-  "description": "Web Bluetooth MCU Manager for firmware updates",
+  "description": "Browser-based MCUmgr client for Bluetooth LE and Serial",
   "scripts": {
     "test": "jest",
+    "test:ci": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepare": "husky install"
   },
   "keywords": [
     "bluetooth",
+    "serial",
     "mcumgr",
     "firmware",
     "iot"
