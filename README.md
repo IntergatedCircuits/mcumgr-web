@@ -21,7 +21,7 @@ Choose the transport and SMP version supported by the device in the connection s
 
 ## Quick Start
 
-**Online:** Try MCU Manager by visiting **https://boogie.github.io/mcumgr-web/** with a supported browser.
+**Online:** Try MCU Manager by visiting **https://integratedcircuits.github.io/mcumgr-web/** with a supported browser.
 
 **Local:** For Bluetooth, open `index.html` in a supported browser. For Serial, serve the folder from `localhost`, for example with `python3 -m http.server 8000`, then open `http://localhost:8000`.
 
@@ -177,7 +177,7 @@ See LICENSE file for details.
 
 ## Links
 
-- **Live Demo:** https://boogie.github.io/mcumgr-web/
+- **Live Demo:** https://integratedcircuits.github.io/mcumgr-web/
 - **MCUboot:** https://www.mcuboot.com/
 - **Apache Mynewt:** https://mynewt.apache.org/
 - **Web Serial API:** https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API
